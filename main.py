@@ -6,7 +6,7 @@ import torch
 
 from utils import tools, TrainUtils
 from model import VisionTransformer
-
+from test import tiny_cnn
 from rich.prompt import Prompt
 import pretty_errors
 pretty_errors.activate()
@@ -22,10 +22,8 @@ def main():
     if (config["USE_CUDA_KERNEL"]):
         tools.check_cuda_compilation_available()
     # モデル初期化 
-    model_instance = VisionTransformer(
-        img_size=config["IMG_SIZE"], patch_size=config["PATCH_SIZE"], in_chans=config["IN_CHANS"], num_classes=config["NUM_CLASSES"],
-        embed_dim=config["EMBED_DIM"], depth=config["DEPTH"], num_heads=config["NUM_HEADS"], mlp_ratio=config["MLP_RATIO"], qkv_bias=config["QKV_BIAS"],
-    ).to(device)
+    model_instance = VisionTransformer(img_size=config["IMG_SIZE"], patch_size=config["PATCH_SIZE"], in_chans=config["IN_CHANS"], num_classes=config["NUM_CLASSES"], embed_dim=config["EMBED_DIM"], depth=config["DEPTH"], num_heads=config["NUM_HEADS"], mlp_ratio=config["MLP_RATIO"], qkv_bias=config["QKV_BIAS"]).to(device)
+    #model_instance = tiny_cnn().to(device)
     # 重み読み込み（config.jsonのLOAD_WEIGHTで制御）
     model_instance = tools.load_weight(model_instance, device, config)
     # DataLoader
@@ -34,19 +32,18 @@ def main():
     mixup_fn, train_criterion, test_criterion, optimizer, scheduler, metric, epochs = TrainUtils.setup_training(model_instance, config, device)
     # 損失等LOG用変数
     train_losses, test_losses, test_accs = [], [], []
-    # 学習開始、タイム計測開始
-    print(f"Device: {device} | Epochs: {epochs} | Batch: {config['BATCH_SIZE']}")
-    print(f"Run Directory: {config['RUN_DIR']}")
+    # 学習開始、設定表示、タイム計測開始
+    tools.print_training_info(model_instance, device, config)
     start = time.time()
 
     # ── 学習ループ ──
     for epoch in range(epochs):
+        # スケジューラ前進
+        scheduler.step(epoch)
         # 1epoch学習
         train_loss = TrainUtils.train_one_epoch(model_instance, device, train_loader, mixup_fn, train_criterion, optimizer)
         # test
         test_loss, test_acc = TrainUtils.evaluate(model_instance, device, test_loader, test_criterion, metric)
-        # スケジューラ前進
-        scheduler.step(epoch)
         # 損失等情報をLOG変数に格納
         train_losses.append(train_loss)
         test_losses.append(test_loss)
