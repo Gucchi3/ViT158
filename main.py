@@ -1,0 +1,77 @@
+import sys
+import os
+import time
+
+import torch
+
+from utils import tools, TrainUtils
+from model import VisionTransformer
+
+from rich.prompt import Prompt
+import pretty_errors
+pretty_errors.activate()
+
+
+
+
+def main():
+    # ── 初期セッティング ──
+    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+    device, config = tools.init_setting(config_path)
+    # cuda checker
+    if (config["USE_CUDA_KERNEL"]):
+        tools.check_cuda_compilation_available()
+    # モデル初期化 
+    model_instance = VisionTransformer(
+        img_size=config["IMG_SIZE"], patch_size=config["PATCH_SIZE"], in_chans=config["IN_CHANS"], num_classes=config["NUM_CLASSES"],
+        embed_dim=config["EMBED_DIM"], depth=config["DEPTH"], num_heads=config["NUM_HEADS"], mlp_ratio=config["MLP_RATIO"], qkv_bias=config["QKV_BIAS"],
+    ).to(device)
+    # 重み読み込み（config.jsonのLOAD_WEIGHTで制御）
+    model_instance = tools.load_weight(model_instance, device, config)
+    # DataLoader
+    train_loader, test_loader, classes = tools.make_loader_cifar10(config)
+    # パラメータ等初期化
+    mixup_fn, train_criterion, test_criterion, optimizer, scheduler, metric, epochs = TrainUtils.setup_training(model_instance, config, device)
+    # 損失等LOG用変数
+    train_losses, test_losses, test_accs = [], [], []
+    # 学習開始、タイム計測開始
+    print(f"Device: {device} | Epochs: {epochs} | Batch: {config['BATCH_SIZE']}")
+    print(f"Run Directory: {config['RUN_DIR']}")
+    start = time.time()
+
+    # ── 学習ループ ──
+    for epoch in range(epochs):
+        # 1epoch学習
+        train_loss = TrainUtils.train_one_epoch(model_instance, device, train_loader, mixup_fn, train_criterion, optimizer)
+        # test
+        test_loss, test_acc = TrainUtils.evaluate(model_instance, device, test_loader, test_criterion, metric)
+        # スケジューラ前進
+        scheduler.step(epoch)
+        # 損失等情報をLOG変数に格納
+        train_losses.append(train_loss)
+        test_losses.append(test_loss)
+        test_accs.append(test_acc)
+
+        # 1epoch終了ごとにepoch終了時の損失等出力
+        print(f"[Epoch {epoch+1}/{epochs}] train_loss: {train_loss:.4f}  test_loss: {test_loss:.4f}  test_acc: {test_acc*100:.2f}%")
+        
+    # すべてのepoch終了時に学習時間、ベストaccEpoch表示、ベストAcc出力
+    elapsed = time.time() - start
+    print(f"\nFinished Training — {elapsed:.1f}s")
+    print(f"Best Epoch: {test_accs.index(max(test_accs))+1}  Best Acc: {max(test_accs)*100:.2f}%")
+
+    # ── クラス別正答率 ──
+    TrainUtils.class_accuracy(model_instance, device, test_loader, classes)
+
+    # ── model保存 ──
+    tools.save_model(model_instance, config)
+
+    # ── ONNX保存 ──
+    tools.save_onnx(model_instance, config, device)
+
+    # ── グラフ保存 ──
+    tools.save_curves(train_losses, test_losses, test_accs, config)
+
+
+if __name__ == "__main__":
+    main()

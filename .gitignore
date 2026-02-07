@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 仮想環境
+venv/
+.venv/
+env/
+ENV/
+
+# PyTorch / Machine Learning
+*.pth
+*.onnx
+*.pt
+*.h5
+*.pkl
+*.pickle
+
+# データセット
+data/
+dataset/
+datasets/
+
+# 学習ログ・出力
+log/
+logs/
+outputs/
+runs/
+checkpoints/
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# CUDA / C++ ビルドキャッシュ
+build/
+dist/
+*.egg-info/
+*.o
+*.so
+*.dll
+*.dylib
+*.cache
+
+# PyTorch C++ extension
+torch_extensions/
