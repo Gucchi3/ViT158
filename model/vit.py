@@ -120,17 +120,17 @@ class Block(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4.0, qkv_bias=False,
                  drop=0.0, attn_drop=0.0, drop_path=0.0, act_layer=nn.GELU):
         super().__init__()
-        self.norm1 = nn.LayerNorm(dim)
+        #self.norm1 = nn.LayerNorm(dim)
         self.attn = Attention(dim, num_heads, qkv_bias, attn_drop, drop)
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
-        self.norm2 = nn.LayerNorm(dim)
+        #self.norm2 = nn.LayerNorm(dim)
         self.mlp = Mlp(dim, int(dim * mlp_ratio), act_layer=act_layer, drop=drop)
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
-        x = x + self.drop_path1(self.attn(self.norm1(x)))
-        x = x + self.drop_path2(self.mlp(self.norm2(x)))
+        x = x + self.drop_path1(self.attn(x))
+        x = x + self.drop_path2(self.mlp(x))
         return x
 
 
