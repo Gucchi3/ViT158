@@ -19,6 +19,7 @@ from rich.progress import (
     TimeRemainingColumn,
     TransferSpeedColumn,
 )
+from rich.console import Console
 from rich.table import Table
 from timm.data.mixup import Mixup
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
@@ -105,6 +106,7 @@ class tools:
         table.add_row("Environment", "PyTorch", torch.__version__)
         table.add_row("Environment", "CUDA Kernel", "Enabled" if config["USE_CUDA_KERNEL"] else "Disabled")
         table.add_row("Environment", "Seed", str(config["SEED"]))
+        table.add_row("")
 
         # モデル構造
         table.add_row("Model", "Image Size", str(config["IMG_SIZE"]))
@@ -116,6 +118,7 @@ class tools:
         table.add_row("Model", "MLP Ratio", str(config["MLP_RATIO"]))
         table.add_row("Model", "Total Params", f"{total_params:,} ({total_params/1e6:.2f}M)")
         table.add_row("Model", "Trainable", f"{trainable_params:,}")
+        table.add_row("")
 
         # 学習パラメータ
         table.add_row("Training", "Epochs", str(config["EPOCHS"]))
@@ -125,19 +128,22 @@ class tools:
         table.add_row("Training", "Weight Decay", str(config["WEIGHT_DECAY"]))
         table.add_row("Training", "Warmup Epochs", str(config["WARMUP_EPOCHS"]))
         table.add_row("Training", "LR Min", str(config["LR_MIN"]))
+        table.add_row("")
 
         # データ拡張
         table.add_row("Augmentation", "Mixup α", str(config["MIXUP_ALPHA"]))
         table.add_row("Augmentation", "CutMix α", str(config["CUTMIX_ALPHA"]))
         table.add_row("Augmentation", "Label Smooth", str(config["LABEL_SMOOTHING"]))
         table.add_row("Augmentation", "AutoAugment", str(config["AUTO_AUGMENT"]))
+        table.add_row("")
 
         # 出力先
         table.add_row("Output", "Run Directory", str(config["RUN_DIR"]))
 
-        print()
-        print(table)
-        print()
+        console = Console()
+        console.print()
+        console.print(table)
+        console.print()
 
     @staticmethod
     def make_loader_cifar10(config):

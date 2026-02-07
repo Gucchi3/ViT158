@@ -11,21 +11,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# 直接実行時と通常のインポート時の両方に対応
-try:
-    from .ter_linear_cuda import TerLinearCUDA as TerLinear
-except ImportError: 
-    #? ###############################################################################################################################################################################
-    #? 上記のPathは相対パスであるため、ViT158フォルダ内から直接「Python model/vit.py」をたたいた時に、modelフォルダがパッケージ化されないため、相対パスではimportできない。（相対パスはパッケージ内専用）
-    #? このため、sys.pathの0番ににViT158のパスを追加することで、ViT158フォルダ内から「model.ter_linear」でファイルにアクセスすることができる。  
-    #? ###############################################################################################################################################################################
-  # ViT158フォルダをsys.pathに追加
-    parent_dir = Path(__file__).resolve().parent.parent
-    if str(parent_dir) not in sys.path:
-        sys.path.insert(0, str(parent_dir))
-    from model.ter_linear_cuda import TerLinearCUDA as TerLinear 
-
-#? __init__でimportを行うclassは必ず__all__に記述しないといけないというルールがある。
 __all__ = ["VisionTransformer"]
 
 
@@ -36,6 +21,7 @@ def _ntuple(n):
             return tuple(x)
         return tuple(repeat(x, n))
     return parse
+
 
 to_2tuple = _ntuple(2)
 
@@ -76,9 +62,9 @@ class Mlp(nn.Module):
         super().__init__()
         hidden_features = hidden_features or in_features
         out_features = out_features or in_features
-        self.fc1 = TerLinear(in_features, hidden_features)
+        self.fc1 = nn.Linear(in_features, hidden_features)
         self.act = act_layer()
-        self.fc2 = TerLinear(hidden_features, out_features)
+        self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
     def forward(self, x):
@@ -87,36 +73,8 @@ class Mlp(nn.Module):
         return x
 
 
-# ── Attention ────────────────────────────────────────────────────────────
-class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0.0, proj_drop=0.0):
-        super().__init__()
-        assert dim % num_heads == 0
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
-
-        self.qkv = TerLinear(dim, dim * 3, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = TerLinear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
-
-    def forward(self, x):
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)
-
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-        x = self.proj_drop(self.proj(x))
-        return x
-
-
 # ── Attention (Float32) ─────────────────────────────────────────────────
-class AttentionFloat(nn.Module):
+class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0.0, proj_drop=0.0):
         super().__init__()
         assert dim % num_heads == 0
@@ -149,7 +107,7 @@ class Block(nn.Module):
                  drop=0.0, attn_drop=0.0, drop_path=0.0, act_layer=nn.GELU):
         super().__init__()
         #self.norm1 = nn.LayerNorm(dim)
-        self.attn = AttentionFloat(dim, num_heads, qkv_bias, attn_drop, drop)
+        self.attn = Attention(dim, num_heads, qkv_bias, attn_drop, drop)
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         #self.norm2 = nn.LayerNorm(dim)
@@ -164,9 +122,6 @@ class Block(nn.Module):
 
 # ── Vision Transformer ──────────────────────────────────────────────────
 class VisionTransformer(nn.Module):
-    """
-    ViT with 1.58-bit (ternary) quantized linear layers.
-    """
     def __init__(
         self,
         img_size=224,
@@ -235,21 +190,19 @@ class VisionTransformer(nn.Module):
 
 
 if __name__ == "__main__":
-    import sys
     import json
     import os
-    from pathlib import Path
-    
+
     # 親ディレクトリをsys.pathに追加（ViT158フォルダから実行できるように）
-    parent_dir = Path(__file__).resolve().parent.parent
+    parent_dir = Path(__file__).resolve().parents[2]
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
-    
+
     from torchinfo import summary
-    from model import VisionTransformer
+    from model.vit import VisionTransformer
 
     # config.json読み込み
-    config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config.json")
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
 

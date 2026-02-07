@@ -12,14 +12,13 @@ Reference
 
 import os
 import json
-import sys
 import warnings
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .ter_linear import (
+from .ternary_linear import (
     _round_clip,
     _EPS,
     _Qb,
@@ -54,7 +53,7 @@ def _try_load_kernel():
     global _qkv_kernel
 
     config_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "config.json"
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.json"
     )
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -98,7 +97,7 @@ class _TernaryGemmSTE(torch.autograd.Function):
 
         # 量子化
         x_int8, x_scale = activation_quant_int8(x_norm)   # (*, D) → int8
-        w_int8, alpha   = weight_quant_int8(weight)        # (N, D) → int8
+        w_int8, alpha = weight_quant_int8(weight)        # (N, D) → int8
 
         # GEMM:  (M, K) × (N, K)^T → (M, N)
         x_2d = x_int8.reshape(-1, x_int8.shape[-1])
