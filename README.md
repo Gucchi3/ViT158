@@ -144,7 +144,7 @@ where link
 
 ```bat
 cd C:\Users\<user>\Desktop\ViT-1.58b\ViT158
-.venv\Scripts\activate.bat
+.venv\Scripts\activate
 python main.py
 ```
 
