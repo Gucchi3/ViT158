@@ -26,7 +26,7 @@ class tiny_cnn(nn.Module):
         self.bn4 = nn.BatchNorm2d(56)
         self.relu4 = nn.ReLU(inplace=True)
 
-        # input 32x32x3 ---->>> 4x4x36
+        # input 224x224x3 ---->>> 7x7x50
         self.fc = nn.Linear(7 * 7 * 56, 10)
 
     def forward(self, x):
