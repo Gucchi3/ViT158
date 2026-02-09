@@ -49,5 +49,5 @@
   "LOAD_WEIGHT_PATH": "./log/20260207_120000/model.pth",
 
   "_comment_cuda_kernel": "── CUDAカーネル設定 ──  ",
-  "USE_CUDA_KERNEL": 1
+  "USE_CUDA_KERNEL": 0
 }
