@@ -146,6 +146,73 @@ class tools:
         console.print()
 
     @staticmethod
+    def save_training_info(model, device, config):
+        """学習開始時の設定情報をJSON形式で保存"""
+        # パラメータ数計算
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        
+        # パッチ数・シーケンス長計算
+        num_patches = (config["IMG_SIZE"] // config["PATCH_SIZE"]) ** 2
+        seq_length = num_patches + 1  # +1 for cls_token
+        
+        # GPU情報
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+        else:
+            gpu_name = "CPU"
+        
+        # 情報を辞書形式でまとめる
+        info = {
+            "Environment": {
+                "Device": f"{device} ({gpu_name})",
+                "PyTorch": torch.__version__,
+                "CUDA Kernel": "Enabled" if config["USE_CUDA_KERNEL"] else "Disabled",
+                "Seed": config["SEED"]
+            },
+            "Model": {
+                "Image Size": config["IMG_SIZE"],
+                "Patch Size": config["PATCH_SIZE"],
+                "Num Patches": f"{num_patches} (+1 cls = {seq_length})",
+                "Embed Dim": config["EMBED_DIM"],
+                "Depth": config["DEPTH"],
+                "Num Heads": config["NUM_HEADS"],
+                "MLP Ratio": config["MLP_RATIO"],
+                "Total Params": f"{total_params:,} ({total_params/1e6:.2f}M)",
+                "Trainable": f"{trainable_params:,}"
+            },
+            "Training": {
+                "Epochs": config["EPOCHS"],
+                "Batch Size": config["BATCH_SIZE"],
+                "Optimizer": config["OPTIMIZER"].upper(),
+                "Learning Rate": config["LEARNING_RATE"],
+                "Weight Decay": config["WEIGHT_DECAY"],
+                "Warmup Epochs": config["WARMUP_EPOCHS"],
+                "LR Min": config["LR_MIN"]
+            },
+            "Augmentation": {
+                "Mixup α": config["MIXUP_ALPHA"],
+                "CutMix α": config["CUTMIX_ALPHA"],
+                "Label Smooth": config["LABEL_SMOOTHING"],
+                "AutoAugment": config["AUTO_AUGMENT"]
+            },
+            "Output": {
+                "Run Directory": config["RUN_DIR"]
+            }
+        }
+        
+        # JSONファイルに保存
+        info_path = os.path.join(config["RUN_DIR"], "training_info.json")
+        try:
+            with open(info_path, "w", encoding="utf-8") as f:
+                json.dump(info, f, indent=4, ensure_ascii=False)
+            print(f"Training info saved at {info_path}")
+        except Exception as e:
+            print("#" * 50)
+            print(f"Failed to save training info: {e}")
+            print("#" * 50)
+
+    @staticmethod
     def make_loader_cifar10(config):
         """CIFAR-10 の DataLoader を作成（vit-cifar100準拠の前処理）"""
         CIFAR10_MEAN = (0.4914, 0.4822, 0.4465)

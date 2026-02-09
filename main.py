@@ -69,6 +69,9 @@ def main():
 
     # ── グラフ保存 ──
     tools.save_curves(train_losses, test_losses, test_accs, config)
+    
+    # ── 学習情報保存 ──
+    tools.save_training_info(model_instance, device, config)
 
 
 if __name__ == "__main__":
