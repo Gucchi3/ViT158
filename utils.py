@@ -155,28 +155,31 @@ class tools:
         if auto_aug in ("none", "None", ""):
             auto_aug = None
         # transform定義
-        train_transform = transforms.Compose([
-            transforms.Resize(config["IMG_SIZE"], interpolation=transforms.InterpolationMode.BICUBIC),
-            transforms.CenterCrop(config["IMG_SIZE"]),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomVerticalFlip(),
-            transforms.RandomRotation(degrees=(-30, 30)),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-            transforms.RandomAffine(degrees=(-10, 10), translate=(0.1, 0.1), scale=(0.9, 1.1)),
-            transforms.ToTensor(),
-            transforms.Normalize(CIFAR10_MEAN,CIFAR10_STD)
+        # train_transform = transforms.Compose([
+        #     transforms.Resize(config["IMG_SIZE"], interpolation=transforms.InterpolationMode.BICUBIC),
+        #     transforms.CenterCrop(config["IMG_SIZE"]),
+        #     transforms.RandomHorizontalFlip(),
+        #     transforms.RandomVerticalFlip(),
+        #     transforms.RandomRotation(degrees=(-30, 30)),
+        #     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        #     transforms.RandomAffine(degrees=(-10, 10), translate=(0.1, 0.1), scale=(0.9, 1.1)),
+        #     transforms.ToTensor(),
+        #     transforms.Normalize(CIFAR10_MEAN,CIFAR10_STD)
             
-            # input_size=(config["IN_CHANS"], config["IMG_SIZE"], config["IMG_SIZE"]),
-            # is_training=True,
-            # color_jitter=config["COLOR_JITTER"],
-            # auto_augment=auto_aug,
-            # interpolation=config["INTERPOLATION"],
-            # mean=CIFAR10_MEAN,
-            # std=CIFAR10_STD,
-            # re_prob=config["RE_PROB"],
-            # re_mode=config["RE_MODE"],
-            # re_count=config["RE_COUNT"],
-        ])
+        # ])
+        train_transform = create_transform(
+            input_size=(config["IN_CHANS"], config["IMG_SIZE"], config["IMG_SIZE"]),
+            is_training=True,
+            color_jitter=config["COLOR_JITTER"],
+            auto_augment=auto_aug,
+            interpolation=config["INTERPOLATION"],
+            mean=CIFAR10_MEAN,
+            std=CIFAR10_STD,
+            normalize=True,
+            re_prob=config["RE_PROB"],
+            re_mode=config["RE_MODE"],
+            re_count=config["RE_COUNT"],
+        )
         test_transform = transforms.Compose([
             transforms.Resize(config["IMG_SIZE"], interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.CenterCrop(config["IMG_SIZE"]),
@@ -299,8 +302,8 @@ class TrainUtils:
                 # データとラベルをデバイスに転送
                 data, label = data.to(device), label.to(device)
                 # # Mixup/CutMixによるデータ拡張を適用（有効な場合のみ）
-                # if mixup_fn is not None:
-                #     data, label = mixup_fn(data, label)
+                if mixup_fn is not None:
+                    data, label = mixup_fn(data, label)
                 # 勾配をゼロクリア
                 optimizer.zero_grad()
                 # モデルで推論
@@ -357,15 +360,15 @@ class TrainUtils:
     @staticmethod
     def setup_training(model, config, device):
         """学習に必要な各要素をまとめて初期化"""
-        # # mixup (両方0の場合は無効化)
-        # if config["MIXUP_ALPHA"] > 0 or config["CUTMIX_ALPHA"] > 0:
-        #     mixup_fn = Mixup(mixup_alpha=config["MIXUP_ALPHA"], cutmix_alpha=config["CUTMIX_ALPHA"], prob=config["MIXUP_PROB"], switch_prob=config["MIXUP_SWITCH_PROB"], mode=config["MIXUP_MODE"], label_smoothing=config["LABEL_SMOOTHING"], num_classes=config["NUM_CLASSES"],)
-        #     train_criterion = SoftTargetCrossEntropy()
-        # else:
-        #     mixup_fn = None
-        #     train_criterion = nn.CrossEntropyLoss(label_smoothing=config["LABEL_SMOOTHING"])
-        mixup_fn = None
-        train_criterion = nn.CrossEntropyLoss(label_smoothing=config["LABEL_SMOOTHING"])
+        # mixup (両方0の場合は無効化)
+        if config["MIXUP_ALPHA"] > 0 or config["CUTMIX_ALPHA"] > 0:
+            mixup_fn = Mixup(mixup_alpha=config["MIXUP_ALPHA"], cutmix_alpha=config["CUTMIX_ALPHA"], prob=config["MIXUP_PROB"], switch_prob=config["MIXUP_SWITCH_PROB"], mode=config["MIXUP_MODE"], label_smoothing=config["LABEL_SMOOTHING"], num_classes=config["NUM_CLASSES"])
+            train_criterion = SoftTargetCrossEntropy()
+        else:
+            mixup_fn = None
+            train_criterion = nn.CrossEntropyLoss(label_smoothing=config["LABEL_SMOOTHING"])
+        #mixup_fn = None
+        #train_criterion = nn.CrossEntropyLoss(label_smoothing=config["LABEL_SMOOTHING"])
         # 損失関数
         test_criterion = nn.CrossEntropyLoss()
         # オプティマイザ
