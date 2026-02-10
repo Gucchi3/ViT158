@@ -178,7 +178,7 @@ class TerLinearCUDA(nn.Linear):
     それ以外は STE ベースの PyTorch フォールバックへ自動切り替え。
     """
 
-    def __init__(self, in_features, out_features, bias=False):
+    def __init__(self, in_features, out_features, bias=None):
         super().__init__(in_features, out_features, bias)
         self.norm = nn.LayerNorm(in_features)
         self.test = True
