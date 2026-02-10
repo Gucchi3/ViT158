@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 # 直接実行時と通常のインポート時の両方に対応
 try:
-    from .ternary_linear_cuda import TerLinearCUDA as TerLinear
+    from .ternary_linear import TerLinearCUDA as TerLinear
 except ImportError:
     #? ###############################################################################################################################################################################
     #? 相対パスはパッケージ内専用のため、ViT158フォルダから直接実行すると import できない。
@@ -23,7 +23,7 @@ except ImportError:
     parent_dir = Path(__file__).resolve().parents[2]
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
-    from model.ter_vit.ternary_linear_cuda import TerLinearCUDA as TerLinear
+    from model.ter_vit.ternary_linear import TerLinearCUDA as TerLinear
 
 #? __init__でimportを行うclassは必ず__all__に記述しないといけないというルールがある。
 __all__ = ["VisionTransformer"]
