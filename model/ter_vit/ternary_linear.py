@@ -187,13 +187,13 @@ class TerLinearCUDA(nn.Linear):
     def __init__(self, in_features, out_features, bias=None):
         super().__init__(in_features, out_features, bias)
         self.norm = nn.LayerNorm(in_features)
-        self.test = True
+        self.test = True #? test運用フラッグ
 
     def forward(self, x):
         w = self.weight
         x_norm = self.norm(x)
         
-        # 実装確認済み、今後数週間はtest== Trueでテスト運用
+        #? 実装確認済み、今後数週間はtest == Trueでテスト運用
         if self.test == True:
             # 入力xと重みwを量子化
             x_q, x_scale = activation_quant_int8(x_norm)
