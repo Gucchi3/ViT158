@@ -62,23 +62,23 @@ class Quantizer_float(nn.Module):
         """
         LSQ 論文に基づく初期化:
         s_init = 2 * mean(|v|) / sqrt(Q_P)
-        ここでは activations を unsigned 前提とし、Q_P = qmax とする [web:29]。
+        ここでは activations を unsigned 前提とし、Q_P = qmax とする。
         """
+        # すでに初期化済みならパス
         if self.initialized.item() == 1:
             return
-        
+        # 入力をvとする。
         v = x
-        mean_abs = v.abs().mean()              # ⟨|v|⟩
-        
-        # unsigned activations を仮定: Q_P = 2^b - 1 ≒ qmax [web:29]
-        # （qmin=0, qmax=2^b-1 で呼ぶ前提）
+        # 絶対値の平均を取得 -> mean⟨|v|⟩
+        mean_abs = v.abs().mean()
+        # QPは量子化値がとる幅の最大値（if bit=8なら、QP=255or127）
         QP = float(qmax)
-        if QP <= 0:
-            QP = 1.0  # ゼロ除算防止用のフォールバック
-        
-        s_init = 2.0 * mean_abs / (QP ** 0.5)  # s_init = 2⟨|v|⟩ / √Q_P [web:29]
-        
-        self.scale.data = s_init
+        # 論文内の初期化値生成用数式 -> s_init = 2⟨|v|⟩ / √Q_P 
+        s_init = 2.0 * mean_abs / (QP ** 0.5)
+        # 生成した初期値を格納
+        with torch.no_grad():
+            self.scale.copy_(s_init)
+        # bufferに1を格納
         self.initialized.fill_(1)
     
     def forward(self, x, qmin, qmax):
@@ -101,7 +101,7 @@ class Quantizer_float(nn.Module):
 
 
 # ── 逆量子化_float ───────────────────────────────────────────────────────
-class DeQuantizer_float(nn.Module):
+class DeQuantizer_float_init(nn.Module):
     def __init__(self):
         super().__init__()
     
