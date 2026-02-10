@@ -86,88 +86,88 @@ def dequant_float(mult_result, scale_x, scale_w):
 _qkv_kernel = None
 
 
-# ── CUDA compiler loader ───────────────────────────────────────────────
-def _try_load_kernel():
-    """config.json の USE_CUDA_KERNEL=1 なら JIT コンパイルを試みる."""
-    global _qkv_kernel
+# # ── CUDA compiler loader ───────────────────────────────────────────────
+# def _try_load_kernel():
+#     """config.json の USE_CUDA_KERNEL=1 なら JIT コンパイルを試みる."""
+#     global _qkv_kernel
 
-    config_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.json"
-    )
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            if json.load(f).get("USE_CUDA_KERNEL", 0) != 1:
-                return
-    except Exception:
-        return
+#     config_path = os.path.join(
+#         os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.json"
+#     )
+#     try:
+#         with open(config_path, "r", encoding="utf-8") as f:
+#             if json.load(f).get("USE_CUDA_KERNEL", 0) != 1:
+#                 return
+#     except Exception:
+#         return
 
-    if not torch.cuda.is_available():
-        raise SystemExit("CUDA is not available, but USE_CUDA_KERNEL=1 is set.")
+#     if not torch.cuda.is_available():
+#         raise SystemExit("CUDA is not available, but USE_CUDA_KERNEL=1 is set.")
 
-    try:
-        from torch.utils.cpp_extension import load
+#     try:
+#         from torch.utils.cpp_extension import load
 
-        kernel_dir = os.path.join(os.path.dirname(__file__), "kernel")
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
-            _qkv_kernel = load(
-                name="qkv_kernel",
-                sources=[
-                    os.path.join(kernel_dir, "qkv_kernel.cpp"),
-                    os.path.join(kernel_dir, "qkv_kernel.cu"),
-                ],
-                verbose=False,
-            )
-    except Exception as exc:
-        _qkv_kernel = None
-        raise SystemExit(f"Failed to build CUDA kernel: {exc}")
-
-
-# ── CUDA compile ───────────────────────────────────────────────────────
-_try_load_kernel()
+#         kernel_dir = os.path.join(os.path.dirname(__file__), "kernel")
+#         with warnings.catch_warnings():
+#             warnings.filterwarnings("ignore")
+#             _qkv_kernel = load(
+#                 name="qkv_kernel",
+#                 sources=[
+#                     os.path.join(kernel_dir, "qkv_kernel.cpp"),
+#                     os.path.join(kernel_dir, "qkv_kernel.cu"),
+#                 ],
+#                 verbose=False,
+#             )
+#     except Exception as exc:
+#         _qkv_kernel = None
+#         raise SystemExit(f"Failed to build CUDA kernel: {exc}")
 
 
-# ── autograd.Function (CUDA forward + STE backward) ────────────────────
-class _TernaryGemmSTE(torch.autograd.Function):
-    """Forward: CUDA int8 kernel,  Backward: STE (恒等勾配)."""
+# # ── CUDA compile ───────────────────────────────────────────────────────
+# _try_load_kernel()
 
-    @staticmethod
-    def forward(ctx, x_norm, weight, bias):
-        ctx.save_for_backward(x_norm, weight, bias)
 
-        # 量子化
-        x_int8, x_scale = activation_quant_int8(x_norm)   # (*, D) → int8
-        w_int8, alpha = weight_quant_int8(weight)        # (N, D) → int8
+# # ── autograd.Function (CUDA forward + STE backward) ────────────────────
+# class _TernaryGemmSTE(torch.autograd.Function):
+#     """Forward: CUDA int8 kernel,  Backward: STE (恒等勾配)."""
 
-        # GEMM:  (M, K) × (N, K)^T → (M, N)
-        x_2d = x_int8.reshape(-1, x_int8.shape[-1])
-        y = _qkv_kernel.ternary_qkv_gemm(x_2d, w_int8)
+#     @staticmethod
+#     def forward(ctx, x_norm, weight, bias):
+#         ctx.save_for_backward(x_norm, weight, bias)
 
-        # 逆量子化:  y_float = y_int × α / x_scale
-        #   α = mean(|W|),  x_scale = Qb / γ
-        #   → y_float = y_int × α γ / Qb   (論文 式の通り)
-        y = y * (alpha / x_scale.reshape(-1, 1))
-        y = y.reshape(*x_norm.shape[:-1], -1)
+#         # 量子化
+#         x_int8, x_scale = activation_quant_int8(x_norm)   # (*, D) → int8
+#         w_int8, alpha = weight_quant_int8(weight)        # (N, D) → int8
 
-        if bias is not None:
-            y = y + bias
-        return y
+#         # GEMM:  (M, K) × (N, K)^T → (M, N)
+#         x_2d = x_int8.reshape(-1, x_int8.shape[-1])
+#         y = _qkv_kernel.ternary_qkv_gemm(x_2d, w_int8)
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        x_norm, weight, bias = ctx.saved_tensors
-        # STE: 量子化を無視し、通常の線形層として勾配を伝播
-        grad_x = grad_output @ weight
-        grad_w = (
-            grad_output.reshape(-1, grad_output.shape[-1]).t()
-            @ x_norm.reshape(-1, x_norm.shape[-1])
-        )
-        grad_b = (
-            grad_output.sum(dim=tuple(range(grad_output.dim() - 1)))
-            if bias is not None
-            else None
-        )
-        return grad_x, grad_w, grad_b
+#         # 逆量子化:  y_float = y_int × α / x_scale
+#         #   α = mean(|W|),  x_scale = Qb / γ
+#         #   → y_float = y_int × α γ / Qb   (論文 式の通り)
+#         y = y * (alpha / x_scale.reshape(-1, 1))
+#         y = y.reshape(*x_norm.shape[:-1], -1)
+
+#         if bias is not None:
+#             y = y + bias
+#         return y
+
+#     @staticmethod
+#     def backward(ctx, grad_output):
+#         x_norm, weight, bias = ctx.saved_tensors
+#         # STE: 量子化を無視し、通常の線形層として勾配を伝播
+#         grad_x = grad_output @ weight
+#         grad_w = (
+#             grad_output.reshape(-1, grad_output.shape[-1]).t()
+#             @ x_norm.reshape(-1, x_norm.shape[-1])
+#         )
+#         grad_b = (
+#             grad_output.sum(dim=tuple(range(grad_output.dim() - 1)))
+#             if bias is not None
+#             else None
+#         )
+#         return grad_x, grad_w, grad_b
 
 
 # ── TerLinearCUDA ───────────────────────────────────────────────────────
@@ -187,7 +187,6 @@ class TerLinearCUDA(nn.Linear):
         w = self.weight
         x_norm = self.norm(x)
         
-        #　現在実装テスト中
         if self.test == True:
             # 入力xと重みwを量子化
             x_q, x_scale = activation_quant_int8(x_norm)
@@ -204,15 +203,15 @@ class TerLinearCUDA(nn.Linear):
             result = dequant_float(mul_res, x_scale, w_scale)
             return result
 
-        # CUDA kernel パス
-        if _qkv_kernel is not None and x_norm.is_cuda:
-            return _TernaryGemmSTE.apply(x_norm, w, self.bias)
+        # # CUDA kernel パス
+        # if _qkv_kernel is not None and x_norm.is_cuda:
+        #     return _TernaryGemmSTE.apply(x_norm, w, self.bias)
 
-        # フォールバック: STE + F.linear  (CPU / kernel 未ビルド時)
-        x_q, _ = activation_quant_float(x_norm)
-        x_quant = x_norm + (x_q - x_norm).detach()
+        # # フォールバック: STE + F.linear  (CPU / kernel 未ビルド時)
+        # x_q, _ = activation_quant_float(x_norm)
+        # x_quant = x_norm + (x_q - x_norm).detach()
 
-        w_q, _ = weight_quant_float(w)
-        w_quant = w + (w_q - w).detach()
+        # w_q, _ = weight_quant_float(w)
+        # w_quant = w + (w_q - w).detach()
 
-        return F.linear(x_quant, w_quant, self.bias)
+        # return F.linear(x_quant, w_quant, self.bias)
