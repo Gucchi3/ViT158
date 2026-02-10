@@ -48,6 +48,6 @@
   "LOAD_WEIGHT": 0, 
   "LOAD_WEIGHT_PATH": "./log/20260207_120000/model.pth",
 
-  "_comment_cuda_kernel": "── CUDAカーネル設定 ──  ",
+  "_comment_cuda_kernel": "── CUDAカーネル設定 ──  (現在製作中、使用不可、今後はcudaカーネルではなく、float32にキャストしてF.linearにすることを検討中)  ",
   "USE_CUDA_KERNEL": 0
 }
