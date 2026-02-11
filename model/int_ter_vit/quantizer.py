@@ -2,6 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+# ── 定数 ──────────────────────────────────────────────────────────────────
+_EPS = 1e-5
+_ACT_BITS = 8
+_Qb = (1 << (_ACT_BITS - 1)) - 1  # 127  (int8 互換)
+
+
 # ── 量子化_int8 ─────────────────────────────────────────────────────────
 class Quantizer_int(nn.Module):
     
@@ -48,7 +55,7 @@ class Quantizer_float(nn.Module):
 #! ######################################################################
 #!               ───── 実装テスト中 LSQ初期化テスト ─────                   
 #!#######################################################################
-class Quantizer_float(nn.Module):
+class Quantizer_float_leanable(nn.Module):
     
     def __init__(self, init_scale=0.1):
         super().__init__()
@@ -111,21 +118,69 @@ class DeQuantizer_float_init(nn.Module):
         return x_float
 
 
+# ──　absmean 学習可能量子化 ───────────────────────────────────────────────
+class Quantizer_with_absmean(nn.Module):
+    def __init__(self, init_scale_a=0.1, init_scale_b=-0.1):
+        super().__init__()
+        # 学習可能な閾値
+        self.scale_a = nn.Parameter(torch.tensor(float(init_scale_a)))
+        self.scale_b = nn.Parameter(torch.tensor(float(init_scale_b)))
+
+    def forward(self, w_input):
+        scale = torch.mean(torch.abs(w_input))
+        # absmean
+        w_middle = w_input / ((scale) + _EPS)
+        # 三値量子化: >scale_a -> 1, <scale_b -> -1, それ以外 -> 0
+        w_output = torch.zeros_like(w_middle)
+        w_output = torch.where(w_middle >= self.scale_a,  torch.ones_like(w_output), w_output)
+        w_output = torch.where(w_middle <= self.scale_b, -torch.ones_like(w_output), w_output)
+
+        return w_output, scale
+
+# ──　absmean 学習可能量子化 ───────────────────────────────────────────────
+class Quantizer_with_absmean(nn.Module):
+    def __init__(self, init_scale_a=0.1, init_scale_b=-0.1):
+        super().__init__()
+        # 学習可能な閾値
+        self.scale_a = nn.Parameter(torch.tensor(float(init_scale_a)))
+        self.scale_b = nn.Parameter(torch.tensor(float(init_scale_b)))
+
+    def forward(self, w_input):
+        scale = torch.mean(torch.abs(w_input))
+        # absmean
+        w_middle = w_input / ((scale) + _EPS)
+        # 三値量子化: >scale_a -> 1, <scale_b -> -1, それ以外 -> 0
+        w_output = torch.zeros_like(w_middle)
+        w_output = torch.where(w_middle >= self.scale_a,  torch.ones_like(w_output), w_output)
+        w_output = torch.where(w_middle <= self.scale_b, -torch.ones_like(w_output), w_output)
+
+        return w_output, scale
 
 
+# ──　L1 norm ─────────────────────────────────────────────────────────────
+class L1Norm(nn.Module):
+    def __init__(self, dim=None, eps=1e-12):
+        super().__init__()
+        self.dim = dim
+        self.eps = eps
 
-# ── 定数 ────────────────────────────────────────────────────────────────
-_EPS = 1e-5
-_ACT_BITS = 8
-_Qb = (1 << (_ACT_BITS - 1)) - 1  # 127  (int8 互換)
+    def forward(self, w_input):
+        # L1ノルム（絶対値の総和）
+        w_abs_total = w_input.abs().sum(dim=self.dim, keepdim=True)
+        # ゼロ除算回避
+        w_abs_total = torch.clamp(w_abs_total, min=self.eps)
+        # L1 正規化
+        w_output = w_input / w_abs_total
+        return w_output
 
-# ── ユーティリティ ──────────────────────────────────────────────────────
+
+# ── ユーティリティ ─────────────────────────────────────────────────────────
 def _round_clip(x, min_val, max_val):
     """RoundClip(x, a, b) = max(a, min(b, round(x)))"""
     return x.round().clamp_(min_val, max_val)
 
 
-# ── 活性化量子化 (absmax, per-token, 8-bit) ─────────────────────────────
+# ── 活性化量子化 (absmax, per-token, 8-bit) ────────────────────────────────
 def activation_quant_float(x):
     """8-bit absmax 量子化 → 逆量子化 (float, STE 学習用).
 
@@ -140,7 +195,7 @@ def activation_quant_float(x):
     return x_q, scale
 
 
-# ── 重み量子化 (absmean, ternary {-1, 0, +1}) ──────────────────────────
+# ── 重み量子化 (absmean, ternary {-1, 0, +1}) ──────────────────────────────
 def weight_quant_float(w):
     """Absmean 3 値量子化 → 逆量子化 (float, STE 学習用).
 
@@ -154,7 +209,7 @@ def weight_quant_float(w):
     return w_q, alpha
 
 
-# ── int8 量子化 (CUDA kernel 用) ────────────────────────────────────────
+# ── int8 量子化 (CUDA kernel 用) ───────────────────────────────────────────
 def activation_quant_int8(x):
     """8-bit absmax 量子化 (int8)."""
     gamma = x.abs().max(dim=-1, keepdim=True).values.clamp_(min=_EPS)
@@ -162,7 +217,7 @@ def activation_quant_int8(x):
     x_q = _round_clip(x * scale, -_Qb, _Qb).to(torch.int8)
     return x_q, scale
 
-
+# ──　重みint8量子化absmean ──────────────────────────────────────────────────
 def weight_quant_int8(w):
     """Absmean 3 値量子化 (int8)."""
     alpha = w.abs().mean()

@@ -9,13 +9,13 @@ import torch.nn.functional as F
 
 try:
     from .int_ter_vit_linear import IntTerLinear
-    from .quantizer import Quantizer_float, Quantizer_int, DeQuantizer_float
+    from .quantizer import Quantizer_float, Quantizer_int, DeQuantizer_float, L1Norm, Quantizer_with_absmean
 except ImportError:
     parent_dir = Path(__file__).resolve().parents[2]
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
     from .int_ter_vit_linear import IntTerLinear
-    from .quantizer import Quantizer_float, Quantizer_int, DeQuantizer_float
+    from .quantizer import Quantizer_float, Quantizer_int, DeQuantizer_float, L1Norm
     
     
 __all__ = ["IntTerVisionTransformer"]
@@ -96,18 +96,46 @@ class Attention(nn.Module):
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = IntTerLinear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+        
+        # L1Norm と Quantizer を初期化
+        self.l1norm = L1Norm(dim=-1)
+        self.q_quantizer = Quantizer_with_absmean()
+        self.k_quantizer = Quantizer_with_absmean()
+        self.v_quantizer = Quantizer_with_absmean()
+        self.attn_quantizer = Quantizer_with_absmean()
 
     def forward(self, x):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
+        
+        # L1norm
+        q_l1norm = self.l1norm(q)
+        k_l1norm = self.l1norm(k)
+        v_l1norm = self.l1norm(v) 
+        
+        # 量子化
+        q_quant, q_scale = self.q_quantizer(q_l1norm)
+        k_quant, k_scale = self.k_quantizer(k_l1norm)
+        v_quant, v_scale = self.v_quantizer(v_l1norm)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-        x = self.proj_drop(self.proj(x))
+        attn = (q_quant @ k_quant.transpose(-2, -1)) * self.scale
+        #attn = attn.softmax(dim=-1)
+        #attn = self.attn_drop(attn)
+        
+        # 実数に戻す
+        attn = attn * q_scale * k_scale
+        
+        # 量子化
+        attn_quant, qk_scale = self.attn_quantizer(attn)
+        
+        x = (attn_quant @ v_quant).transpose(1, 2).reshape(B, N, C)
+        #x = self.proj_drop(self.proj(x))
+        
+        # 逆量子化
+        x = x * qk_scale * v_scale
+        
         return x
 
 

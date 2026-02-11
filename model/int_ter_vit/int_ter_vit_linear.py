@@ -30,7 +30,7 @@ class IntTerLinear(nn.Linear):
     def __init__(self, in_features, out_features, bias=None):
         super().__init__(in_features, out_features, bias)
         self.norm = nn.LayerNorm(in_features)
-        self.test = False #? test運用フラッグ
+        self.test = True #? test運用フラッグ
 
     def forward(self, x):
         w = self.weight
@@ -50,8 +50,11 @@ class IntTerLinear(nn.Linear):
             # floatにキャスト（F.linearはint8の入力に対応して泣いため、いったんfloatにキャストしてからF.linearに入力する）
             # x * w を実行 biasはfalseが規定
             mul_res = F.linear(x_q_d, w_q_d, self.bias)
+            # 逆量子化
             result = dequant_float(mul_res, x_scale, w_scale)
+            # return
             return result
+            #return mul_res 
 
 
 
