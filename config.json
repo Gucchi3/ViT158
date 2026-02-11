@@ -11,7 +11,7 @@
   "QKV_BIAS": true,
 
   "_comment_training": "── 学習パラメータ ──",
-  "EPOCHS": 600,
+  "EPOCHS": 1000,
   "BATCH_SIZE": 64,
   "NUM_WORKERS": 6,
   "OPTIMIZER": "adamw",
