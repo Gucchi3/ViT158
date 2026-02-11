@@ -1,3 +1,3 @@
-from .vit import VisionTransformer
+from .vit import ViT
 
-__all__ = ["VisionTransformer"]
+__all__ = [ViT]

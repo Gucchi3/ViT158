@@ -5,10 +5,10 @@ import time
 import torch
 
 from utils import tools, TrainUtils
-from model.vit import VisionTransformer
 from model.ter_vit import TernaryVisionTransformer
-from model.int_ter_vit import IntTerVisionTransformer
 from model.tiny_cnn import tiny_cnn
+from model.vit import ViT
+from model.test import TestViT
 from rich.prompt import Prompt
 import pretty_errors
 pretty_errors.activate()
@@ -24,7 +24,7 @@ def main():
     if (config["USE_CUDA_KERNEL"]):
         tools.check_cuda_compilation_available()
     # モデル初期化 
-    model_instance = TernaryVisionTransformer(img_size=config["IMG_SIZE"], patch_size=config["PATCH_SIZE"], in_chans=config["IN_CHANS"], num_classes=config["NUM_CLASSES"], embed_dim=config["EMBED_DIM"], depth=config["DEPTH"], num_heads=config["NUM_HEADS"], mlp_ratio=config["MLP_RATIO"], qkv_bias=config["QKV_BIAS"]).to(device)
+    model_instance = TestViT(image_size=config["IMG_SIZE"], patch_size=config["PATCH_SIZE"], num_classes=config["NUM_CLASSES"], dim=config["EMBED_DIM"], depth=config["DEPTH"], heads=config["NUM_HEADS"], mlp_dim=int(config["EMBED_DIM"] * config["MLP_RATIO"]), channels=config["IN_CHANS"]).to(device)
     #model_instance = tiny_cnn().to(device)
     # 重み読み込み（config.jsonのLOAD_WEIGHTで制御）
     model_instance = tools.load_weight(model_instance, device, config)

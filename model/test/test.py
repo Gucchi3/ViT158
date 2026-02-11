@@ -2,15 +2,26 @@ import torch
 from torch import nn
 from torch.nn import Module, ModuleList
 
+from pathlib import Path
+import os, sys
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-# helpers
+try:
+    from .test_linear import TerLinear
+except ImportError:
+    parent_dir = Path(__file__).resolve().parents[2]
+    if str(parent_dir) not in sys.path:
+        sys.path.insert(0, str(parent_dir))
+    from .test_linear import TerLinear
+    
 
+# helpers
+# ── pair ────────────────────────────────────────────────────────────
 def pair(t):
     return t if isinstance(t, tuple) else (t, t)
 
-# classes
+#
 # ── Feed Forward ─────────────────────────────────────────────────────
 class FeedForward(Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
@@ -42,8 +53,8 @@ class Attention(Module):
 
         self.attend = nn.Softmax(dim = -1)
         self.dropout = nn.Dropout(dropout)
-
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
+        # TerLinear ???
+        self.to_qkv = TerLinear(dim, inner_dim * 3, bias = False)
 
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, dim),
@@ -90,7 +101,7 @@ class Transformer(Module):
 
 
 # ── ViT ─────────────────────────────────────────────────────
-class ViT(Module):
+class TestViT(Module):
     def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
         super().__init__()
         # image, patchのheight,widthを格納
