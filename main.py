@@ -7,6 +7,7 @@ import torch
 from utils import tools, TrainUtils
 from model.vit import VisionTransformer
 from model.ter_vit import TernaryVisionTransformer
+from model.int_ter_vit import IntTerVisionTransformer
 from model.tiny_cnn import tiny_cnn
 from rich.prompt import Prompt
 import pretty_errors
