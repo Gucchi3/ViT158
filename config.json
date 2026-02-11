@@ -8,6 +8,10 @@
   "DEPTH": 7,
   "NUM_HEADS": 12,
   "MLP_RATIO": 1.0,
+  "DIM_HEAD": 32,
+  "DROPOUT": 0.1,
+  "EMB_DROPOUT": 0.0,
+  "POOL": "cls",
   "QKV_BIAS": true,
 
   "_comment_training": "── 学習パラメータ ──",
