@@ -1,15 +1,3 @@
-"""
-CUDA-accelerated BitLinear layer for ViT-1.58b.
-
-Uses a custom CUDA kernel (ternary_qkv_gemm) for int8 × ternary GEMM
-when available, with automatic fallback to the STE-based PyTorch path.
-
-Reference
----------
-"ViT-1.58b: Mobile Vision Transformers in the 1-bit Era"
- Zhengqing Yuan et al., 2024  —  https://arxiv.org/abs/2406.18051
-"""
-
 import os, sys
 import json
 import warnings
