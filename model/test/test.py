@@ -27,11 +27,10 @@ class FeedForward(Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
         self.net = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, hidden_dim),
+            TerLinear(dim, hidden_dim),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
+            TerLinear(hidden_dim, dim),
             nn.Dropout(dropout)
         )
 
@@ -57,13 +56,11 @@ class Attention(Module):
         self.to_qkv = TerLinear(dim, inner_dim * 3, bias = False)
 
         self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
+            TerLinear(inner_dim, dim),
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
 
     def forward(self, x):
-        # 正規化
-        x = self.norm(x)
         # qkv
         qkv = self.to_qkv(x).chunk(3, dim = -1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
