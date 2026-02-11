@@ -57,6 +57,9 @@ class tools:
         os.makedirs(run_dir, exist_ok=True)
         config["RUN_DIR"] = run_dir
 
+        # dim_head の計算と追加
+        config["DIM_HEAD"] = config["EMBED_DIM"] // config["NUM_HEADS"]
+
         return device, config
     
     @staticmethod
