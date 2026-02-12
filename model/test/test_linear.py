@@ -27,10 +27,10 @@ class TerLinear(nn.Linear):
         x = self.norm(x)
         w = self.weight
         # activation
-        x_q, _ = self.quantizer.activation_quant(x)
+        x_q, _ = self.quantizer.to_bit(x, bit=8, conv=False, as_float=True, unsigned=False)
         x_quant = x + (x_q - x).detach()
         # weight
-        w_q, _ = self.quantizer.weight_quant(w)
+        w_q, _ = self.quantizer.to_ter(w, as_float=True)
         w_quant = w + (w_q - w).detach()
         # return
         return F.linear(x_quant, w_quant, self.bias)
