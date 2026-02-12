@@ -10,5 +10,6 @@
 現在定義されているモデル:
 
 - vit      : 通常のVision Transformer
-- ter_vit  : 3値量子化のVision Transformer (TerLinearを使用)
-- tiny_cnn : 小規模CNN
+- ter_vit  : 3値量子化のVision Transformer (TerLinearを使用) ※不完全
+- tiny_cnn : 小規模CNN  
+- test     : test用モデル (現状TerLinearを検証中)
