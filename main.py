@@ -17,7 +17,7 @@ pretty_errors.activate()
 
 
 def main():
-    # ── 初期セッティング ──
+    # ── 初期セッティング ──────────────────────────────────────────────────────────────────────────────
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
     device, config = tools.init_setting(config_path)
     # cuda checker
@@ -38,8 +38,9 @@ def main():
     # 学習開始、設定表示、タイム計測開始
     tools.print_training_info(model_instance, device, config)
     start = time.time()
-
-    # ── 学習ループ ──
+    
+    
+    # ── 学習ループ ────────────────────────────────────────────────────────────────────────────────────
     for epoch in range(epochs):
         # スケジューラ前進
         scheduler.step(epoch)
@@ -54,26 +55,34 @@ def main():
 
         # 1epoch終了ごとにepoch終了時の損失等出力
         print(f"[Epoch {epoch+1}/{epochs}] train_loss: {train_loss:.4f}  test_loss: {test_loss:.4f}  test_acc: {test_acc*100:.2f}%")
-        
+    
     # すべてのepoch終了時に学習時間、ベストaccEpoch表示、ベストAcc出力
     elapsed = time.time() - start
     print(f"\nFinished Training — {elapsed:.1f}s")
     print(f"Best Epoch: {test_accs.index(max(test_accs))+1}  Best Acc: {max(test_accs)*100:.2f}%")
-
-    # ── クラス別正答率 ──
+    
+    
+    # ── クラス別正答率 ─────────────────────────────────────────────────────────────────────────────────
     TrainUtils.class_accuracy(model_instance, device, test_loader, classes)
-
-    # ── model保存 ──
+    
+    
+    # ── model保存 ─────────────────────────────────────────────────────────────────────────────────────
     tools.save_model(model_instance, config)
-
-    # ── ONNX保存 ──
+    
+    
+    # ── ONNX保存 ──────────────────────────────────────────────────────────────────────────────────────
     tools.save_onnx(model_instance, config, device)
-
-    # ── グラフ保存 ──
+    
+    
+    # ── グラフ保存 ─────────────────────────────────────────────────────────────────────────────────────
     tools.save_curves(train_losses, test_losses, test_accs, config)
     
-    # ── 学習情報保存 ──
+    
+    # ── 学習情報保存 ───────────────────────────────────────────────────────────────────────────────────
     tools.save_training_info(model_instance, device, config)
+    
+    
+
 
 
 if __name__ == "__main__":
