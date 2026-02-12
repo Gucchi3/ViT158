@@ -12,7 +12,6 @@
   "DROPOUT": 0.1,
   "EMB_DROPOUT": 0.0,
   "POOL": "cls",
-  "QKV_BIAS": true,
 
   "_comment_training": "── 学習パラメータ ──",
   "EPOCHS": 1000,

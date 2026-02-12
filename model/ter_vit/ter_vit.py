@@ -150,7 +150,7 @@ class TernaryVisionTransformer(nn.Module):
         depth=12,
         num_heads=12,
         mlp_ratio=4.0,
-        qkv_bias=True,
+        qkv_bias=False,
         drop_rate=0.0,
         attn_drop_rate=0.0,
         drop_path_rate=0.0,
@@ -236,7 +236,7 @@ if __name__ == "__main__":
         depth=config["DEPTH"],
         num_heads=config["NUM_HEADS"],
         mlp_ratio=config["MLP_RATIO"],
-        qkv_bias=config["QKV_BIAS"],
+        qkv_bias=False,
     )
 
     # モデル情報表示

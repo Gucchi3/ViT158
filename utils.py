@@ -107,7 +107,7 @@ class tools:
         # 環境情報
         table.add_row("Environment", "Device", f"{device} ({gpu_name})")
         table.add_row("Environment", "PyTorch", torch.__version__)
-        table.add_row("Environment", "CUDA Kernel", "Enabled" if config["USE_CUDA_KERNEL"] else "Disabled")
+        #table.add_row("Environment", "CUDA Kernel", "Enabled" if config["USE_CUDA_KERNEL"] else "Disabled")
         table.add_row("Environment", "Seed", str(config["SEED"]))
         table.add_row("")
 
@@ -118,6 +118,8 @@ class tools:
         table.add_row("Model", "Embed Dim", str(config["EMBED_DIM"]))
         table.add_row("Model", "Depth", str(config["DEPTH"]))
         table.add_row("Model", "Num Heads", str(config["NUM_HEADS"]))
+        table.add_row("Model", "Dim Head", str(config["DIM_HEAD"]))
+        table.add_row("Model", "Pool", str(config["POOL"]))
         table.add_row("Model", "MLP Ratio", str(config["MLP_RATIO"]))
         table.add_row("Model", "Total Params", f"{total_params:,} ({total_params/1e6:.2f}M)")
         table.add_row("Model", "Trainable", f"{trainable_params:,}")
@@ -129,6 +131,8 @@ class tools:
         table.add_row("Training", "Optimizer", config["OPTIMIZER"].upper())
         table.add_row("Training", "Learning Rate", str(config["LEARNING_RATE"]))
         table.add_row("Training", "Weight Decay", str(config["WEIGHT_DECAY"]))
+        table.add_row("Training", "Dropout", str(config["DROPOUT"]))
+        table.add_row("Training", "Emb Dropout", str(config["EMB_DROPOUT"]))
         table.add_row("Training", "Warmup Epochs", str(config["WARMUP_EPOCHS"]))
         table.add_row("Training", "LR Min", str(config["LR_MIN"]))
         table.add_row("")
@@ -180,6 +184,8 @@ class tools:
                 "Embed Dim": config["EMBED_DIM"],
                 "Depth": config["DEPTH"],
                 "Num Heads": config["NUM_HEADS"],
+                "Dim Head": config["DIM_HEAD"],
+                "Pool": config["POOL"],
                 "MLP Ratio": config["MLP_RATIO"],
                 "Total Params": f"{total_params:,} ({total_params/1e6:.2f}M)",
                 "Trainable": f"{trainable_params:,}"
@@ -190,6 +196,8 @@ class tools:
                 "Optimizer": config["OPTIMIZER"].upper(),
                 "Learning Rate": config["LEARNING_RATE"],
                 "Weight Decay": config["WEIGHT_DECAY"],
+                "Dropout": config["DROPOUT"],
+                "Emb Dropout": config["EMB_DROPOUT"],
                 "Warmup Epochs": config["WARMUP_EPOCHS"],
                 "LR Min": config["LR_MIN"]
             },
