@@ -1,17 +1,17 @@
-import sys
-import os
+import sys, os
 import time
 
 import torch
+
+from rich.prompt import Prompt
+import pretty_errors
+pretty_errors.activate()
 
 from utils import tools, TrainUtils
 from model.ter_vit import TernaryVisionTransformer
 from model.tiny_cnn import tiny_cnn
 from model.vit import ViT
 from model.test import TestViT
-from rich.prompt import Prompt
-import pretty_errors
-pretty_errors.activate()
 
 
 
@@ -40,7 +40,7 @@ def main():
     start = time.time()
     
     
-    # ── 学習ループ ────────────────────────────────────────────────────────────────────────────────────
+    # ── 学習ループ ─────────────────────────────────────────────────────────────────────────────────────
     for epoch in range(epochs):
         # スケジューラ前進
         scheduler.step(epoch)
@@ -56,13 +56,14 @@ def main():
         # 1epoch終了ごとにepoch終了時の損失等出力
         print(f"[Epoch {epoch+1}/{epochs}] train_loss: {train_loss:.4f}  test_loss: {test_loss:.4f}  test_acc: {test_acc*100:.2f}%")
     
-    # すべてのepoch終了時に学習時間、ベストaccEpoch表示、ベストAcc出力
+    
+    # ── 学習時間、ベストaccEpoch、ベストAcc出力 ───────────────────────────────────────────────────────────
     elapsed = time.time() - start
     print(f"\nFinished Training — {elapsed:.1f}s")
     print(f"Best Epoch: {test_accs.index(max(test_accs))+1}  Best Acc: {max(test_accs)*100:.2f}%")
     
     
-    # ── クラス別正答率 ─────────────────────────────────────────────────────────────────────────────────
+    # ── クラス別正答率 ──────────────────────────────────────────────────────────────────────────────────
     TrainUtils.class_accuracy(model_instance, device, test_loader, classes)
     
     
