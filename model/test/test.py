@@ -117,7 +117,7 @@ class TestViT(Module):
         # パッチ埋め込みを行うシーケンシャルレイヤー
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_height, p2 = patch_width),
-            nn.LayerNorm(patch_dim),
+            nn.LayerNorm(patch_dim), # Dual PatchNorm (https://openreview.net/pdf?id=jgMqve6Qhw)
             nn.Linear(patch_dim, dim),
             nn.LayerNorm(dim),
         )
@@ -130,7 +130,7 @@ class TestViT(Module):
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
         # プーリングタイプをインスタンス化
         self.pool = pool
-        # 恒等関数レイヤー
+        # 恒等関数レイヤー (ここは任意の関数に変更可能)
         self.to_latent = nn.Identity()
         # 分類ヘッド
         self.mlp_head = nn.Linear(dim, num_classes) if num_classes > 0 else None
@@ -156,7 +156,7 @@ class TestViT(Module):
             return x
         # meanならシーケンス全体の平均、clsならCLSトークンの値を取得
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
-        # 恒等関数
+        # 恒等関数 (任意の関数に変更可)
         x = self.to_latent(x)
         # headの出力をreturn
         return self.mlp_head(x)
