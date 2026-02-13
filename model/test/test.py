@@ -8,12 +8,14 @@ from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
 try:
-    from .test_linear import TerLinear
+    from .test_linear import TerLinear, Q_Linear
+    from .quantizer import Quantizer
 except ImportError:
     parent_dir = Path(__file__).resolve().parents[2]
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
-    from .test_linear import TerLinear
+    from .test_linear import TerLinear, Q_Linear
+    from .quantizer import Quantizer
     
 
 # helpers
@@ -27,10 +29,11 @@ class FeedForward(Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
         self.net = nn.Sequential(
-            TerLinear(dim, hidden_dim),
-            nn.GELU(),
+            TerLinear(in_features = dim, out_features = hidden_dim, bias = True, use_layer_norm = True),
+            #nn.GELU(),
+            nn.ReLU6(),
             nn.Dropout(dropout),
-            TerLinear(hidden_dim, dim),
+            TerLinear(in_features = hidden_dim, out_features = dim, bias = True, use_layer_norm = True),
             nn.Dropout(dropout)
         )
 
@@ -53,10 +56,10 @@ class Attention(Module):
         self.attend = nn.Softmax(dim = -1)
         self.dropout = nn.Dropout(dropout)
         # TerLinear ???
-        self.to_qkv = TerLinear(dim, inner_dim * 3, bias = False)
+        self.to_qkv = TerLinear(in_features = dim, out_features = inner_dim * 3, bias = False, use_layer_norm = True)
 
         self.to_out = nn.Sequential(
-            TerLinear(inner_dim, dim),
+            TerLinear(in_features = inner_dim, out_features = dim, bias = True, use_layer_norm = True),
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
 
@@ -97,10 +100,13 @@ class Transformer(Module):
         return self.norm(x)
 
 
-# ── ViT ─────────────────────────────────────────────────────
+# ── ViT ─────────────────────────────────────────────────────────────
 class TestViT(Module):
     def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
         super().__init__()
+        self.quantizer = Quantizer()
+        self.input_bit = 8
+        self.embed_bit = 8
         # image, patchのheight,widthを格納
         image_height, image_width = pair(image_size)
         patch_height, patch_width = pair(patch_size)
@@ -118,7 +124,7 @@ class TestViT(Module):
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_height, p2 = patch_width),
             nn.LayerNorm(patch_dim), # Dual PatchNorm (https://openreview.net/pdf?id=jgMqve6Qhw)
-            nn.Linear(patch_dim, dim),
+            Q_Linear(in_features = patch_dim, out_features = dim, bias = True, use_layer_norm = False),
             nn.LayerNorm(dim),
         )
         # クラストークン、位置埋め込み定義（学習可能）
@@ -133,20 +139,46 @@ class TestViT(Module):
         # 恒等関数レイヤー (ここは任意の関数に変更可能)
         self.to_latent = nn.Identity()
         # 分類ヘッド
-        self.mlp_head = nn.Linear(dim, num_classes) if num_classes > 0 else None
-
+        self.mlp_head = Q_Linear(in_features = dim, out_features = num_classes, bias = True, use_layer_norm = False) if num_classes > 0 else None
+    
+    
+    # ── スケール変換用関数 ─────────────────────────────────────────────────────
+    def _rescale_int(self, x_int, from_scale, to_scale, bit):
+        scale_ratio = to_scale / (from_scale + self.quantizer.EPS)
+        int_max = (2**(bit - 1) - 1)
+        return torch.round(x_int * scale_ratio).clamp(-int_max, int_max)
+    
+    
+    # ── forward ──────────────────────────────────────────────────────────────
     def forward(self, img):
+        """
+        cls token、位置埋め込みは最初両方ともそれぞれのスケールで量子化される、
+        その後、x_float = x_int / scale_cls をして逆量子化したのち x_int = x_float * scale_xをすることで、スケール変換する。
+        """
+        # 入力疑似量子化
+        img_q, scale_img = self.quantizer.to_bit_per_tensor(img, bit=self.input_bit, as_float=True, unsigned=False)
+        # STE
+        img = img + (img_q - img).detach()
         # バッチ次元数取得
         batch = img.shape[0]
         # パッチ埋め込み
         x = self.to_patch_embedding(img)
+        # パッチ埋め込みを整数化
+        x_int, scale_x = self.quantizer.to_bit_per_tensor(x, bit=self.embed_bit, as_float=False, unsigned=False)
         # CLSトークン埋め込み
         cls_tokens = repeat(self.cls_token, '... d -> b ... d', b = batch)
-        x = torch.cat((cls_tokens, x), dim = 1)
+        if cls_tokens.numel() > 0:
+            cls_int, scale_cls = self.quantizer.to_bit_per_tensor(cls_tokens, bit=self.embed_bit, as_float=False, unsigned=False)
+            cls_int = self._rescale_int(cls_int, from_scale=scale_cls, to_scale=scale_x, bit=self.embed_bit)
+            x_int = torch.cat((cls_int, x_int), dim = 1)
         # 連結後のシーケンス長取得
-        seq = x.shape[1]
-        # 位置埋め込み
-        x = x + self.pos_embedding[:seq]
+        seq = x_int.shape[1]
+        # 位置埋め込みを整数化してスケールを合わせてから加算
+        pos_int, scale_pos = self.quantizer.to_bit_per_tensor(self.pos_embedding[:seq], bit=self.embed_bit, as_float=False, unsigned=False)
+        pos_int = self._rescale_int(pos_int, from_scale=scale_pos, to_scale=scale_x, bit=self.embed_bit)
+        x_int = x_int + pos_int
+        # 共通スケールで浮動小数へ復元
+        x = x_int / (scale_x + self.quantizer.EPS)
         # Dropout
         x = self.dropout(x)
         # Transform層
