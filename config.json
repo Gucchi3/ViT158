@@ -14,7 +14,7 @@
   "POOL": "cls",
 
   "_comment_training": "── 学習パラメータ ──",
-  "EPOCHS": 1000,
+  "EPOCHS": 500,
   "BATCH_SIZE": 64,
   "NUM_WORKERS": 6,
   "OPTIMIZER": "adamw",
