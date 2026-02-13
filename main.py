@@ -16,6 +16,7 @@ from model.test import TestViT
 
 
 
+
 def main():
     # ── 初期セッティング ──────────────────────────────────────────────────────────────────────────────
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
