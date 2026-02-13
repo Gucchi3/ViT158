@@ -11,7 +11,7 @@
   "DIM_HEAD": 32,
   "DROPOUT": 0.1,
   "EMB_DROPOUT": 0.0,
-  "POOL": "cls",
+  "POOL": "mean",
 
   "_comment_training": "── 学習パラメータ ──",
   "EPOCHS": 500,
