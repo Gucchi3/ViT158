@@ -13,15 +13,15 @@ class Quantizer:
     
     # ── ユーティリティ ───────────────────────────────────────────────────────
     def _round_clip(self, x, min_val, max_val):
-        return x.round().clamp_(min_val, max_val)
+        return x.round().clamp(min_val, max_val)
     
     
     # ── 量子化 (absmax, n-bit) ────────────────────────────────────────
     def to_bit_per_dim(self, x, bit=8, as_float=True, unsigned=False):
-        gamma = x.abs().max(dim=-2, keepdim=True).values.clamp_(min=self.EPS)
+        gamma = x.abs().max(dim=-2, keepdim=True).values.clamp(min=self.EPS)
 
         if unsigned:
-            x_max = x.max(dim=-2, keepdim=True).values.clamp_(min=self.EPS)
+            x_max = x.max(dim=-2, keepdim=True).values.clamp(min=self.EPS)
             scale = (2**(bit) - 1) / x_max
         else:
             scale = ((2**(bit - 1) - 1)) / gamma
@@ -41,10 +41,10 @@ class Quantizer:
 
 
     def to_bit_per_token(self, x, bit=8, as_float=True, unsigned=False):
-        gamma = x.abs().max(dim=-1, keepdim=True).values.clamp_(min=self.EPS)
+        gamma = x.abs().max(dim=-1, keepdim=True).values.clamp(min=self.EPS)
 
         if unsigned:
-            x_max = x.max(dim=-1, keepdim=True).values.clamp_(min=self.EPS)
+            x_max = x.max(dim=-1, keepdim=True).values.clamp(min=self.EPS)
             scale = (2**(bit) - 1) / x_max
         else:
             scale = ((2**(bit - 1) - 1)) / gamma
@@ -64,10 +64,10 @@ class Quantizer:
 
 
     def to_bit_per_tensor(self, x, bit=8, as_float=True, unsigned=False):
-        gamma = x.abs().max().clamp_(min=self.EPS)
+        gamma = x.abs().max().clamp(min=self.EPS)
 
         if unsigned:
-            x_max = x.max().clamp_(min=self.EPS)
+            x_max = x.max().clamp(min=self.EPS)
             scale = (2**(bit) - 1) / x_max
         else:
             scale = ((2**(bit - 1) - 1)) / gamma
@@ -117,7 +117,7 @@ class Quantizer:
 
 
 
-# # ── 逆量子化器 ───────────────────────────────────────────────────────────────
+# ── 逆量子化器 ───────────────────────────────────────────────────────────────
 class  DeQuantizer:
     #def __init__(self):
     
@@ -125,7 +125,11 @@ class  DeQuantizer:
         return x * scale_a * scale_b
 
 
+# ── Affine変換 ───────────────────────────────────────────────────────────────
+class Affine(nn.Module):
+    #def __init__(self):
+        
+    def forward(self):
+        return
+    
 
-# quantizer.to_bit()
-# quantizer.to_ter()
-# dequantizer.to_float()
