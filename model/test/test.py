@@ -9,13 +9,13 @@ from einops.layers.torch import Rearrange
 
 try:
     from .test_linear import TerLinear, Q_Linear
-    from .quantizer import Quantizer
+    from .quantizer import Quantizer, Affine
 except ImportError:
     parent_dir = Path(__file__).resolve().parents[2]
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
     from .test_linear import TerLinear, Q_Linear
-    from .quantizer import Quantizer
+    from .quantizer import Quantizer, Affine
     
 
 # helpers
@@ -29,11 +29,11 @@ class FeedForward(Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
         self.net = nn.Sequential(
-            TerLinear(in_features = dim, out_features = hidden_dim, bias = True, use_layer_norm = True),
+            TerLinear(in_features = dim, out_features = hidden_dim, bias = False, use_layer_norm = True),
             #nn.GELU(),
             nn.ReLU6(),
             nn.Dropout(dropout),
-            TerLinear(in_features = hidden_dim, out_features = dim, bias = True, use_layer_norm = True),
+            TerLinear(in_features = hidden_dim, out_features = dim, bias = False, use_layer_norm = True),
             nn.Dropout(dropout)
         )
 
@@ -51,7 +51,7 @@ class Attention(Module):
         self.heads = heads
         self.scale = dim_head ** -0.5
 
-        self.norm = nn.LayerNorm(dim)
+        self.norm = Affine(dim)
 
         self.attend = nn.Softmax(dim = -1)
         self.dropout = nn.Dropout(dropout)
@@ -59,7 +59,7 @@ class Attention(Module):
         self.to_qkv = TerLinear(in_features = dim, out_features = inner_dim * 3, bias = False, use_layer_norm = True)
 
         self.to_out = nn.Sequential(
-            TerLinear(in_features = inner_dim, out_features = dim, bias = True, use_layer_norm = True),
+            TerLinear(in_features = inner_dim, out_features = dim, bias = False, use_layer_norm = True),
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
 
@@ -83,7 +83,7 @@ class Attention(Module):
 class Transformer(Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
         super().__init__()
-        self.norm = nn.LayerNorm(dim)
+        self.norm = Affine(dim)
         self.layers = ModuleList([])
 
         for _ in range(depth):
@@ -123,9 +123,9 @@ class TestViT(Module):
         # パッチ埋め込みを行うシーケンシャルレイヤー
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_height, p2 = patch_width),
-            nn.LayerNorm(patch_dim), # Dual PatchNorm (https://openreview.net/pdf?id=jgMqve6Qhw)
-            Q_Linear(in_features = patch_dim, out_features = dim, bias = True, use_layer_norm = False),
-            nn.LayerNorm(dim),
+            Affine(patch_dim), # Dual PatchNorm (https://openreview.net/pdf?id=jgMqve6Qhw)
+            Q_Linear(in_features = patch_dim, out_features = dim, bias = False, use_layer_norm = False),
+            Affine(dim),
         )
         # クラストークン、位置埋め込み定義（学習可能）
         self.cls_token = nn.Parameter(torch.randn(num_cls_tokens, dim))
@@ -139,7 +139,7 @@ class TestViT(Module):
         # 恒等関数レイヤー (ここは任意の関数に変更可能)
         self.to_latent = nn.Identity()
         # 分類ヘッド
-        self.mlp_head = Q_Linear(in_features = dim, out_features = num_classes, bias = True, use_layer_norm = False) if num_classes > 0 else None
+        self.mlp_head = Q_Linear(in_features = dim, out_features = num_classes, bias = False, use_layer_norm = False) if num_classes > 0 else None
     
     
     # ── スケール変換用関数 ─────────────────────────────────────────────────────
