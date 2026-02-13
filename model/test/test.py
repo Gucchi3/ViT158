@@ -192,3 +192,42 @@ class TestViT(Module):
         x = self.to_latent(x)
         # headの出力をreturn
         return self.mlp_head(x)
+
+
+if __name__ == "__main__":
+    import json
+
+    try:
+        from torchinfo import summary
+    except ImportError as e:
+        raise ImportError("torchinfo が見つかりません。`pip install torchinfo` を実行してください。") from e
+
+    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    model = TestViT(
+        image_size=config["IMG_SIZE"],
+        patch_size=config["PATCH_SIZE"],
+        num_classes=config["NUM_CLASSES"],
+        dim=config["EMBED_DIM"],
+        depth=config["DEPTH"],
+        heads=config["NUM_HEADS"],
+        mlp_dim=int(config["EMBED_DIM"] * config["MLP_RATIO"]),
+        pool=config["POOL"],
+        channels=config["IN_CHANS"],
+        dim_head=config["DIM_HEAD"],
+        dropout=config["DROPOUT"],
+        emb_dropout=config["EMB_DROPOUT"],
+    )
+
+    print("=" * 80)
+    print("TestViT Model Information")
+    print("=" * 80)
+    summary(
+        model,
+        input_size=(1, config["IN_CHANS"], config["IMG_SIZE"], config["IMG_SIZE"]),
+        col_names=["input_size", "output_size", "num_params", "trainable"],
+        depth=4,
+        verbose=1,
+    )
