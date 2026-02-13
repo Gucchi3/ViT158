@@ -118,7 +118,6 @@ class Quantizer:
         return w_q, alpha
 
 
-
 # ── 逆量子化器 ───────────────────────────────────────────────────────────────
 class  DeQuantizer:
     #def __init__(self):
