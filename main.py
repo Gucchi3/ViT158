@@ -25,7 +25,7 @@ def main():
     # if (config["USE_CUDA_KERNEL"]):
     #     tools.check_cuda_compilation_available()
     # モデル初期化 
-    model_instance = TestViT(image_size=config["IMG_SIZE"], patch_size=config["PATCH_SIZE"], num_classes=config["NUM_CLASSES"], dim=config["EMBED_DIM"], depth=config["DEPTH"], heads=config["NUM_HEADS"], mlp_dim=int(config["EMBED_DIM"] * config["MLP_RATIO"]), channels=config["IN_CHANS"], dim_head=config["DIM_HEAD"], dropout=config["DROPOUT"], emb_dropout=config["EMB_DROPOUT"], pool=config["POOL"]).to(device)
+    model_instance = ViT(image_size=config["IMG_SIZE"], patch_size=config["PATCH_SIZE"], num_classes=config["NUM_CLASSES"], dim=config["EMBED_DIM"], depth=config["DEPTH"], heads=config["NUM_HEADS"], mlp_dim=int(config["EMBED_DIM"] * config["MLP_RATIO"]), channels=config["IN_CHANS"], dim_head=config["DIM_HEAD"], dropout=config["DROPOUT"], emb_dropout=config["EMB_DROPOUT"], pool=config["POOL"]).to(device)
     #model_instance = tiny_cnn().to(device)
     
     # 重み読み込み（config.jsonのLOAD_WEIGHTで制御）
