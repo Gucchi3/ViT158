@@ -19,17 +19,18 @@ except ImportError:
 
 # ── TerLinear ───────────────────────────────────────────────────────────
 class TerLinear(nn.Linear):
-    def __init__(self, in_features, out_features, bias=True, use_layer_norm=True, bit=8, as_float=False, unsigned=False):
+    def __init__(self, in_features, out_features, bias=True, use_norm=False, bit=8, as_float=False, unsigned=False):
         super().__init__(in_features, out_features, bias)
         self.quantizer = Quantizer()
-        self.use_layer_norm = use_layer_norm
+        self.use_norm = use_norm
         self.bit = bit
         self.as_float = as_float
         self.unsigned = unsigned
-        self.norm = Affine(in_features, bit=bit, unsigned=unsigned, as_float=as_float) if use_layer_norm else nn.Identity()
+        self.norm = Affine(in_features, bit=bit, unsigned=unsigned, as_float=as_float) if use_norm else nn.Identity()
 
     def forward(self, x, input_scale=None, return_scale=False):
-        x = self.norm(x)
+        if self.use_norm:
+            x = self.norm(x)
         w = self.weight
         b = self.bias
 
@@ -64,17 +65,18 @@ class TerLinear(nn.Linear):
 
 # ── Q_Linear ────────────────────────────────────────────────────────────
 class Q_Linear(nn.Linear):
-    def __init__(self, in_features, out_features, bias=True, use_layer_norm=True, bit=8, as_float=False, unsigned=False):
+    def __init__(self, in_features, out_features, bias=True, use_norm=False, bit=8, as_float=False, unsigned=False):
         super().__init__(in_features, out_features, bias)
         self.quantizer = Quantizer()
-        self.use_layer_norm = use_layer_norm
+        self.use_norm = use_norm
         self.bit = bit
         self.as_float = as_float
         self.unsigned = unsigned
-        self.norm = Affine(in_features, bit=bit, unsigned=unsigned, as_float=as_float) if use_layer_norm else nn.Identity()
+        self.norm = Affine(in_features, bit=bit, unsigned=unsigned, as_float=as_float) if use_norm else nn.Identity()
 
     def forward(self, x, input_scale=None, return_scale=False):
-        x = self.norm(x)
+        if self.use_norm:
+            x = self.norm(x)
         w = self.weight
         b = self.bias
 
@@ -117,14 +119,18 @@ class Q_Linear(nn.Linear):
 
 # ── Q_Conv2d ────────────────────────────────────────────────────────────
 class Q_Conv2d(nn.Conv2d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True, bit=8, as_float=False, unsigned=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True, use_norm=False, bit=8, as_float=False, unsigned=False):
         super().__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=bias)
         self.quantizer = Quantizer()
+        self.use_norm = use_norm
+        self.norm = nn.BatchNorm2d(in_channels) if use_norm else nn.Identity()
         self.bit = bit
         self.as_float = as_float
         self.unsigned = unsigned
 
     def forward(self, x, input_scale=None, return_scale=False):
+        if self.use_norm:
+            x = self.norm(x)
         w = self.weight
         b = self.bias
 

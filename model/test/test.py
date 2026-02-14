@@ -30,10 +30,10 @@ class FeedForward(Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
-        self.fc1 = Q_Linear(dim, hidden_dim, bias=False, use_layer_norm=False, bit=8, as_float=True, unsigned=False)
+        self.fc1 = Q_Linear(dim, hidden_dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
         self.act = nn.GELU()
         self.drop1 = nn.Dropout(dropout)
-        self.fc2 = Q_Linear(hidden_dim, dim, bias=False, use_layer_norm=False, bit=8, as_float=True, unsigned=False)
+        self.fc2 = Q_Linear(hidden_dim, dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
         self.drop2 = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -65,7 +65,7 @@ class Attention(Module):
             dim,
             inner_dim * 3,
             bias=False,
-            use_layer_norm=False,
+            use_norm=False,
             bit=8,
             as_float=True,
             unsigned=False,
@@ -137,7 +137,7 @@ class TestViT(Module):
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_height, p2 = patch_width),
             nn.LayerNorm(patch_dim),
-            # Q_Linear(patch_dim, dim, bias=False, use_layer_norm=False, as_float=True, unsigned=False),
+            # Q_Linear(patch_dim, dim, bias=False, use_norm=False, as_float=True, unsigned=False),
             nn.Linear(patch_dim, dim, bias=False),
             nn.LayerNorm(dim),
         )
@@ -153,7 +153,7 @@ class TestViT(Module):
         # 恒等関数レイヤー
         self.to_latent = nn.Identity()
         # 分類ヘッド
-        # self.mlp_head = Q_Linear(dim, num_classes, bias=False, use_layer_norm=False, as_float=True, unsigned=False) if num_classes > 0 else None
+        # self.mlp_head = Q_Linear(dim, num_classes, bias=False, use_norm=False, as_float=True, unsigned=False) if num_classes > 0 else None
         self.mlp_head = nn.Linear(dim, num_classes, bias=False) if num_classes > 0 else None
 
     def forward(self, img):
