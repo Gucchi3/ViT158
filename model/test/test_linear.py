@@ -53,9 +53,6 @@ class TerLinear(nn.Linear):
             b_quant = b + (b_q - b).detach()
         else:
             b_quant = None
-        self.last_input_scale = scale_x
-        self.last_weight_scale = scale_w
-        self.last_output_scale = scale_b
         # return
         out = F.linear(x_quant, w_quant, b_quant)
         if return_scale:
@@ -107,9 +104,6 @@ class Q_Linear(nn.Linear):
             b_quant = b + (b_q - b).detach()
         else:
             b_quant = None
-        self.last_input_scale = scale_x
-        self.last_weight_scale = scale_w
-        self.last_output_scale = scale_b
         # return
         out = F.linear(x_quant, w_quant, b_quant)
         if return_scale:
@@ -161,10 +155,6 @@ class Q_Conv2d(nn.Conv2d):
         else:
             b_quant = None
 
-        self.last_input_scale = scale_x
-        self.last_weight_scale = scale_w
-        self.last_output_scale = scale_b
-
         out = F.conv2d(x_quant, w_quant, b_quant, stride=self.stride, padding=self.padding)
         if return_scale:
             return out, scale_b
@@ -201,9 +191,7 @@ class Affine(nn.Module):
         scale_beta = scale_x * scale_gamma
         beta_q = torch.round(self.beta * scale_beta)
         beta_ste = self.beta + (beta_q - self.beta).detach()
-        self.last_input_scale = scale_x
-        self.last_gamma_scale = scale_gamma
-        self.last_output_scale = scale_beta
+
 
         shape = [1] * x.ndim
         shape[-1] = self.D
