@@ -8,37 +8,42 @@ from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
 try:
-    from .test_linear import TerLinear, Q_Linear
-    from .quantizer import Quantizer, Affine
+    from .test_linear import TerLinear, Q_Linear, Q_Conv2d, Affine
+    from .quantizer import Quantizer, NEQ, ScaleConverter
 except ImportError:
     parent_dir = Path(__file__).resolve().parents[2]
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
-    from .test_linear import TerLinear, Q_Linear
-    from .quantizer import Quantizer, Affine
+    from .test_linear import TerLinear, Q_Linear, Q_Conv2d, Affine
+    from .quantizer import Quantizer, NEQ, ScaleConverter
     
 
+
 # helpers
-# ── pair ────────────────────────────────────────────────────────────
+
 def pair(t):
     return t if isinstance(t, tuple) else (t, t)
 
-#
+# classes
 # ── Feed Forward ─────────────────────────────────────────────────────
 class FeedForward(Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
-        self.net = nn.Sequential(
-            TerLinear(in_features = dim, out_features = hidden_dim, bias = False, use_layer_norm = True),
-            #nn.GELU(),
-            nn.ReLU6(),
-            nn.Dropout(dropout),
-            TerLinear(in_features = hidden_dim, out_features = dim, bias = False, use_layer_norm = True),
-            nn.Dropout(dropout)
-        )
+        self.norm = nn.LayerNorm(dim)
+        self.fc1 = Q_Linear(dim, hidden_dim, bias=False, use_layer_norm=False, bit=8, as_float=True, unsigned=False)
+        self.act = nn.GELU()
+        self.drop1 = nn.Dropout(dropout)
+        self.fc2 = Q_Linear(hidden_dim, dim, bias=False, use_layer_norm=False, bit=8, as_float=True, unsigned=False)
+        self.drop2 = nn.Dropout(dropout)
 
     def forward(self, x):
-        return self.net(x)
+        x = self.norm(x)
+        x, _ = self.fc1(x, return_scale=True)
+        x = self.act(x)
+        x = self.drop1(x)
+        x, _ = self.fc2(x, return_scale=True)
+        x = self.drop2(x)
+        return x
 
 
 # ── Attention ─────────────────────────────────────────────────────
@@ -51,21 +56,32 @@ class Attention(Module):
         self.heads = heads
         self.scale = dim_head ** -0.5
 
-        self.norm = Affine(dim)
+        self.norm = nn.LayerNorm(dim)
 
         self.attend = nn.Softmax(dim = -1)
         self.dropout = nn.Dropout(dropout)
-        # TerLinear ???
-        self.to_qkv = TerLinear(in_features = dim, out_features = inner_dim * 3, bias = False, use_layer_norm = True)
+
+        self.to_qkv = Q_Linear(
+            dim,
+            inner_dim * 3,
+            bias=False,
+            use_layer_norm=False,
+            bit=8,
+            as_float=True,
+            unsigned=False,
+        )
 
         self.to_out = nn.Sequential(
-            TerLinear(in_features = inner_dim, out_features = dim, bias = False, use_layer_norm = True),
+            nn.Linear(inner_dim, dim),
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
 
     def forward(self, x):
+        # 正規化
+        x = self.norm(x)
         # qkv
-        qkv = self.to_qkv(x).chunk(3, dim = -1)
+        qkv, _ = self.to_qkv(x, return_scale=True)
+        qkv = qkv.chunk(3, dim = -1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
         # QとKの内積 * sqrt(dim)
         dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
@@ -83,7 +99,7 @@ class Attention(Module):
 class Transformer(Module):
     def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
         super().__init__()
-        self.norm = Affine(dim)
+        self.norm = nn.LayerNorm(dim)
         self.layers = ModuleList([])
 
         for _ in range(depth):
@@ -100,13 +116,10 @@ class Transformer(Module):
         return self.norm(x)
 
 
-# ── ViT ─────────────────────────────────────────────────────────────
+# ── ViT ─────────────────────────────────────────────────────
 class TestViT(Module):
     def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
         super().__init__()
-        self.quantizer = Quantizer()
-        self.input_bit = 8
-        self.embed_bit = 8
         # image, patchのheight,widthを格納
         image_height, image_width = pair(image_size)
         patch_height, patch_width = pair(patch_size)
@@ -123,9 +136,10 @@ class TestViT(Module):
         # パッチ埋め込みを行うシーケンシャルレイヤー
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_height, p2 = patch_width),
-            Affine(patch_dim), # Dual PatchNorm (https://openreview.net/pdf?id=jgMqve6Qhw)
-            Q_Linear(in_features = patch_dim, out_features = dim, bias = False, use_layer_norm = False),
-            Affine(dim),
+            nn.LayerNorm(patch_dim),
+            # Q_Linear(patch_dim, dim, bias=False, use_layer_norm=False, as_float=True, unsigned=False),
+            nn.Linear(patch_dim, dim, bias=False),
+            nn.LayerNorm(dim),
         )
         # クラストークン、位置埋め込み定義（学習可能）
         self.cls_token = nn.Parameter(torch.randn(num_cls_tokens, dim))
@@ -136,49 +150,24 @@ class TestViT(Module):
         self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout)
         # プーリングタイプをインスタンス化
         self.pool = pool
-        # 恒等関数レイヤー (ここは任意の関数に変更可能)
+        # 恒等関数レイヤー
         self.to_latent = nn.Identity()
         # 分類ヘッド
-        self.mlp_head = Q_Linear(in_features = dim, out_features = num_classes, bias = False, use_layer_norm = False) if num_classes > 0 else None
-    
-    
-    # ── スケール変換用関数 ─────────────────────────────────────────────────────
-    def _rescale_int(self, x_int, from_scale, to_scale, bit):
-        scale_ratio = to_scale / (from_scale + self.quantizer.EPS)
-        int_max = (2**(bit - 1) - 1)
-        return torch.round(x_int * scale_ratio).clamp(-int_max, int_max)
-    
-    
-    # ── forward ──────────────────────────────────────────────────────────────
+        # self.mlp_head = Q_Linear(dim, num_classes, bias=False, use_layer_norm=False, as_float=True, unsigned=False) if num_classes > 0 else None
+        self.mlp_head = nn.Linear(dim, num_classes, bias=False) if num_classes > 0 else None
+
     def forward(self, img):
-        """
-        cls token、位置埋め込みは最初両方ともそれぞれのスケールで量子化される、
-        その後、x_float = x_int / scale_cls をして逆量子化したのち x_int = x_float * scale_xをすることで、スケール変換する。
-        """
-        # 入力疑似量子化
-        img_q, scale_img = self.quantizer.to_bit_per_tensor(img, bit=self.input_bit, as_float=True, unsigned=False)
-        # STE
-        img = img + (img_q - img).detach()
         # バッチ次元数取得
         batch = img.shape[0]
         # パッチ埋め込み
         x = self.to_patch_embedding(img)
-        # パッチ埋め込みを整数化
-        x_int, scale_x = self.quantizer.to_bit_per_tensor(x, bit=self.embed_bit, as_float=False, unsigned=False)
         # CLSトークン埋め込み
         cls_tokens = repeat(self.cls_token, '... d -> b ... d', b = batch)
-        if cls_tokens.numel() > 0:
-            cls_int, scale_cls = self.quantizer.to_bit_per_tensor(cls_tokens, bit=self.embed_bit, as_float=False, unsigned=False)
-            cls_int = self._rescale_int(cls_int, from_scale=scale_cls, to_scale=scale_x, bit=self.embed_bit)
-            x_int = torch.cat((cls_int, x_int), dim = 1)
+        x = torch.cat((cls_tokens, x), dim = 1)
         # 連結後のシーケンス長取得
-        seq = x_int.shape[1]
-        # 位置埋め込みを整数化してスケールを合わせてから加算
-        pos_int, scale_pos = self.quantizer.to_bit_per_tensor(self.pos_embedding[:seq], bit=self.embed_bit, as_float=False, unsigned=False)
-        pos_int = self._rescale_int(pos_int, from_scale=scale_pos, to_scale=scale_x, bit=self.embed_bit)
-        x_int = x_int + pos_int
-        # 共通スケールで浮動小数へ復元
-        x = x_int / (scale_x + self.quantizer.EPS)
+        seq = x.shape[1]
+        # 位置埋め込み
+        x = x + self.pos_embedding[:seq]
         # Dropout
         x = self.dropout(x)
         # Transform層
@@ -188,46 +177,7 @@ class TestViT(Module):
             return x
         # meanならシーケンス全体の平均、clsならCLSトークンの値を取得
         x = x.mean(dim = 1) if self.pool == 'mean' else x[:, 0]
-        # 恒等関数 (任意の関数に変更可)
+        # 恒等関数
         x = self.to_latent(x)
         # headの出力をreturn
         return self.mlp_head(x)
-
-
-if __name__ == "__main__":
-    import json
-
-    try:
-        from torchinfo import summary
-    except ImportError as e:
-        raise ImportError("torchinfo が見つかりません。`pip install torchinfo` を実行してください。") from e
-
-    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config.json")
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-
-    model = TestViT(
-        image_size=config["IMG_SIZE"],
-        patch_size=config["PATCH_SIZE"],
-        num_classes=config["NUM_CLASSES"],
-        dim=config["EMBED_DIM"],
-        depth=config["DEPTH"],
-        heads=config["NUM_HEADS"],
-        mlp_dim=int(config["EMBED_DIM"] * config["MLP_RATIO"]),
-        pool=config["POOL"],
-        channels=config["IN_CHANS"],
-        dim_head=config["DIM_HEAD"],
-        dropout=config["DROPOUT"],
-        emb_dropout=config["EMB_DROPOUT"],
-    )
-
-    print("=" * 80)
-    print("TestViT Model Information")
-    print("=" * 80)
-    summary(
-        model,
-        input_size=(1, config["IN_CHANS"], config["IMG_SIZE"], config["IMG_SIZE"]),
-        col_names=["input_size", "output_size", "num_params", "trainable"],
-        depth=4,
-        verbose=1,
-    )
