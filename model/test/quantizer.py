@@ -17,7 +17,7 @@ class Quantizer:
     
     
     # ── 量子化 (absmax, n-bit, per_dim) ──────────────────────────────────────
-    def to_bit_per_dim(self, x, bit=8, as_float=True, unsigned=False):
+    def to_bit_per_dim(self, x, bit=8, as_float=False, unsigned=False):
         gamma = x.abs().max(dim=-2, keepdim=True).values.clamp(min=self.EPS)
 
         if unsigned:
@@ -33,15 +33,15 @@ class Quantizer:
                 x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1)) / scale
         else:
             if unsigned:
-                x_q = self._round_clip(x.clamp(min=0) * scale, 0, 2**(bit) - 1)
+                x_q = self._round_clip(x.clamp(min=0) * scale, 0, 2**(bit) - 1).to(x.dtype)
             else:
-                x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1))
+                x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1)).to(x.dtype)
 
         return x_q, scale
     
     
     # ── 量子化 (absmax, n-bit, per_toeken─────────────────────────────────────
-    def to_bit_per_token(self, x, bit=8, as_float=True, unsigned=False):
+    def to_bit_per_token(self, x, bit=8, as_float=False, unsigned=False):
         gamma = x.abs().max(dim=-1, keepdim=True).values.clamp(min=self.EPS)
 
         if unsigned:
@@ -57,15 +57,15 @@ class Quantizer:
                 x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1)) / scale
         else:
             if unsigned:
-                x_q = self._round_clip(x.clamp(min=0) * scale, 0, 2**(bit) - 1)
+                x_q = self._round_clip(x.clamp(min=0) * scale, 0, 2**(bit) - 1).to(x.dtype)
             else:
-                x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1))
+                x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1)).to(x.dtype)
 
         return x_q, scale
     
     
     # ── 量子化 (absmax, n-bit, per_tensor) ────────────────────────────────────
-    def to_bit_per_tensor(self, x, bit=8, as_float=True, unsigned=False):
+    def to_bit_per_tensor(self, x, bit=8, as_float=False, unsigned=False):
         gamma = x.abs().max().clamp(min=self.EPS)
 
         if unsigned:
@@ -81,86 +81,100 @@ class Quantizer:
                 x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1)) / scale
         else:
             if unsigned:
-                x_q = self._round_clip(x.clamp(min=0) * scale, 0, 2**(bit) - 1)
+                x_q = self._round_clip(x.clamp(min=0) * scale, 0, 2**(bit) - 1).to(x.dtype)
             else:
-                x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1))
+                x_q = self._round_clip(x * scale, -(2**(bit - 1) - 1), (2**(bit - 1) - 1)).to(x.dtype)
 
         return x_q, scale
     
     
     
     # ── ３値量子化 (absmean, ternary {-1, 0, +1}, per_dim) ───────────────────────
-    def to_ter_per_dim(self, w, as_float=True):
+    def to_ter_per_dim(self, w, as_float=False):
         alpha = w.abs().mean(dim=-2, keepdim=True)
         if as_float:
             w_q = self._round_clip(w / (alpha + self.EPS), -1, 1) * alpha
         else:
-            w_q = self._round_clip(w / (alpha + self.EPS), -1, 1)
+            w_q = self._round_clip(w / (alpha + self.EPS), -1, 1).to(w.dtype)
         return w_q, alpha
-    
-    
+
     # ── ３値量子化 (absmean, ternary {-1, 0, +1}, per_token) ─────────────────────
-    def to_ter_per_token(self, w, as_float=True):
+    def to_ter_per_token(self, w, as_float=False):
         alpha = w.abs().mean(dim=-1, keepdim=True)
         if as_float:
             w_q = self._round_clip(w / (alpha + self.EPS), -1, 1) * alpha
         else:
-            w_q = self._round_clip(w / (alpha + self.EPS), -1, 1)
+            w_q = self._round_clip(w / (alpha + self.EPS), -1, 1).to(w.dtype)
         return w_q, alpha
-    
+
     # ── ３値量子化 (absmean, ternary {-1, 0, +1}, per_tensor) ────────────────────
-    def to_ter_per_tensor(self, w, as_float=True):
+    def to_ter_per_tensor(self, w, as_float=False):
         alpha = w.abs().mean()
         if as_float:
             w_q = self._round_clip(w / (alpha + self.EPS), -1, 1) * alpha
         else:
-            w_q = self._round_clip(w / (alpha + self.EPS), -1, 1)
+            w_q = self._round_clip(w / (alpha + self.EPS), -1, 1).to(w.dtype)
         return w_q, alpha
+
+
+# ── NEQ (per-token n-bit quantizer) ───────────────────────────────────────
+class NEQ(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.EPS = 1e-8
+
+    def clip_round(self, x, min_val, max_val):
+        return x.round().clamp(min_val, max_val)
+
+    def forward(self, x, bit=8, unsigned=False, as_float=False):
+        if unsigned:
+            qmax = 2**bit - 1
+            x_max = x.max(dim=-1, keepdim=True).values.clamp(min=self.EPS)
+            scale = x_max / qmax
+            if as_float:
+                x_q = self.clip_round(x.clamp(min=0) / (scale + self.EPS), 0, qmax) * scale
+            else:
+                x_q = self.clip_round(x.clamp(min=0) / (scale + self.EPS), 0, qmax).to(x.dtype)
+        else:
+            qmax = 2**(bit - 1) - 1
+            x_max = x.abs().max(dim=-1, keepdim=True).values.clamp(min=self.EPS)
+            scale = x_max / qmax
+            if as_float:
+                x_q = self.clip_round(x / (scale + self.EPS), -qmax, qmax) * scale
+            else:
+                x_q = self.clip_round(x / (scale + self.EPS), -qmax, qmax).to(x.dtype)
+
+        if as_float:
+            x_quant = x + (x_q - x).detach()
+            return x_quant, scale
+
+        return x_q, scale
+
+
+# ── スケール変換器 ───────────────────────────────────────────────────────────
+class ScaleConverter:
+    @staticmethod
+    def convert(x, scale_old, scale_new, bit=None, unsigned=False, eps=1e-8):
+        x_new = torch.round(x * (scale_old / (scale_new + eps)))
+        if bit is None:
+            return x_new.to(x.dtype)
+        if unsigned:
+            qmin, qmax = 0, 2**bit - 1
+        else:
+            qmin, qmax = -(2**(bit - 1) - 1), (2**(bit - 1) - 1)
+        return x_new.clamp(qmin, qmax).to(x.dtype)
 
 
 # ── 逆量子化器 ───────────────────────────────────────────────────────────────
 class  DeQuantizer:
     #def __init__(self):
     
-    def to_float(self, x, scale_a, scale_b):
-        return x * scale_a * scale_b
-
-
-# ── Affine変換 ───────────────────────────────────────────────────────────────
-class Affine(nn.Module):
-    def __init__(self, D, bit=8, unsigned=False, init_gamma=1.0, init_beta=0.0):
-        super().__init__()
-        self.quantizer = Quantizer()
-        self.bit = bit
-        self.unsigned = unsigned
-        self.D = D
-        self.gamma = nn.Parameter(torch.full((D,), float(init_gamma)))
-        self.beta = nn.Parameter(torch.full((D,), float(init_beta)))
-
-    def forward(self, x):
-        if x.shape[-1] != self.D:
-            raise ValueError(f"Expected input embedding dim D={self.D}, but got {x.shape[-1]}")
-
-        gamma_q, scale_gamma = self.quantizer.to_bit_per_tensor(self.gamma, bit=self.bit, as_float=True, unsigned=self.unsigned)
-
-        gamma_ste = self.gamma + (gamma_q - self.gamma).detach()
-
-        if self.unsigned:
-            x_max = x.max().clamp(min=self.quantizer.EPS)
-            scale_x = (2**(self.bit) - 1) / x_max
+    def to_float(self, x, scale_a, scale_b, scale_c=None):
+        if scale_c is None:
+            return x * scale_a * scale_b
         else:
-            x_gamma = x.abs().max().clamp(min=self.quantizer.EPS)
-            scale_x = (2**(self.bit - 1) - 1) / x_gamma
+            return x * scale_a * scale_b * scale_c
+        
 
-        scale_beta = scale_x * scale_gamma
-        beta_q = torch.round(self.beta * scale_beta) / (scale_beta + self.quantizer.EPS)
-        beta_ste = self.beta + (beta_q - self.beta).detach()
 
-        shape = [1] * x.ndim
-        shape[-1] = self.D
-        gamma_ste = gamma_ste.view(*shape)
-        beta_ste = beta_ste.view(*shape)
-
-        return x * gamma_ste + beta_ste
-    
 
