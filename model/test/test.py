@@ -8,13 +8,13 @@ from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
 try:
-    from .test_linear import TerLinear, Q_Linear, Q_Conv2d, Affine
+    from .test_linear import TerLinear, Q_Linear, Q_Conv2d, Affine, StatsQ_CGA_Linear, StatsQ_CGA_Conv2d
     from .quantizer import Quantizer, NEQ, ScaleConverter
 except ImportError:
     parent_dir = Path(__file__).resolve().parents[2]
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
-    from .test_linear import TerLinear, Q_Linear, Q_Conv2d, Affine
+    from .test_linear import TerLinear, Q_Linear, Q_Conv2d, Affine, StatsQ_CGA_Linear, StatsQ_CGA_Conv2d
     from .quantizer import Quantizer, NEQ, ScaleConverter
     
 
@@ -24,24 +24,52 @@ except ImportError:
 def pair(t):
     return t if isinstance(t, tuple) else (t, t)
 
+
+class PatchEmbedCGA(Module):
+    def __init__(self, image_size, patch_size, channels, dim, bit=8, boundary_range=0.005, granularity="per_tensor"):
+        super().__init__()
+        image_height, image_width = pair(image_size)
+        patch_height, patch_width = pair(patch_size)
+        assert image_height % patch_height == 0 and image_width % patch_width == 0, 'Image dimensions must be divisible by the patch size.'
+
+        self.proj = StatsQ_CGA_Conv2d(
+            channels,
+            dim,
+            kernel_size=(patch_height, patch_width),
+            stride=(patch_height, patch_width),
+            bias=False,
+            bit=bit,
+            boundary_range=boundary_range,
+            granularity=granularity,
+        )
+        self.norm = nn.LayerNorm(dim)
+
+    def forward(self, x):
+        x = self.proj(x).flatten(2).transpose(1, 2)
+        return self.norm(x)
+
 # classes
 # ── Feed Forward ─────────────────────────────────────────────────────
 class FeedForward(Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
-        self.fc1 = Q_Linear(dim, hidden_dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
+        # self.fc1 = Q_Linear(dim, hidden_dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
+        self.fc1 = nn.Linear(dim, hidden_dim, bias=False)
         self.act = nn.GELU()
         self.drop1 = nn.Dropout(dropout)
-        self.fc2 = Q_Linear(hidden_dim, dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
+        # self.fc2 = Q_Linear(hidden_dim, dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
+        self.fc2 = nn.Linear(hidden_dim, dim, bias=False)
         self.drop2 = nn.Dropout(dropout)
 
     def forward(self, x):
         x = self.norm(x)
-        x, _ = self.fc1(x, return_scale=True)
+        # x, _ = self.fc1(x, return_scale=True)
+        x = self.fc1(x)
         x = self.act(x)
         x = self.drop1(x)
-        x, _ = self.fc2(x, return_scale=True)
+        # x, _ = self.fc2(x, return_scale=True)
+        x = self.fc2(x)
         x = self.drop2(x)
         return x
 
@@ -61,15 +89,16 @@ class Attention(Module):
         self.attend = nn.Softmax(dim = -1)
         self.dropout = nn.Dropout(dropout)
 
-        self.to_qkv = Q_Linear(
-            dim,
-            inner_dim * 3,
-            bias=False,
-            use_norm=False,
-            bit=8,
-            as_float=True,
-            unsigned=False,
-        )
+        # self.to_qkv = Q_Linear(
+        #     dim,
+        #     inner_dim * 3,
+        #     bias=False,
+        #     use_norm=False,
+        #     bit=8,
+        #     as_float=True,
+        #     unsigned=False,
+        # )
+        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
 
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, dim),
@@ -80,7 +109,8 @@ class Attention(Module):
         # 正規化
         x = self.norm(x)
         # qkv
-        qkv, _ = self.to_qkv(x, return_scale=True)
+        # qkv, _ = self.to_qkv(x, return_scale=True)
+        qkv = self.to_qkv(x)
         qkv = qkv.chunk(3, dim = -1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
         # QとKの内積 * sqrt(dim)
@@ -118,7 +148,7 @@ class Transformer(Module):
 
 # ── ViT ─────────────────────────────────────────────────────
 class TestViT(Module):
-    def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0.):
+    def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool = 'cls', channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0., quant_bit = 8, quant_boundary_range = 0.005, quant_granularity = "per_tensor"):
         super().__init__()
         # image, patchのheight,widthを格納
         image_height, image_width = pair(image_size)
@@ -127,19 +157,27 @@ class TestViT(Module):
         assert image_height % patch_height == 0 and image_width % patch_width == 0, 'Image dimensions must be divisible by the patch size.'
         # 総パッチ数計算
         num_patches = (image_height // patch_height) * (image_width // patch_width)
-        # 各パッチの次元計算
-        patch_dim = channels * patch_height * patch_width
         # poolの内容確認アサ―ト
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
         # poolがclsなら、クラストークン付与
         num_cls_tokens = 1 if pool == 'cls' else 0
-        # パッチ埋め込みを行うシーケンシャルレイヤー
-        self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_height, p2 = patch_width),
-            nn.LayerNorm(patch_dim),
-            # Q_Linear(patch_dim, dim, bias=False, use_norm=False, as_float=True, unsigned=False),
-            nn.Linear(patch_dim, dim, bias=False),
-            nn.LayerNorm(dim),
+        # 以前のパッチ埋め込み（原状復帰用: 下記をコメント解除）
+        # patch_dim = channels * patch_height * patch_width
+        # self.to_patch_embedding = nn.Sequential(
+        #     Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_height, p2 = patch_width),
+        #     nn.LayerNorm(patch_dim),
+        #     nn.Linear(patch_dim, dim, bias=False),
+        #     nn.LayerNorm(dim),
+        # )
+        # パッチ埋め込み（最初のConvにStatsQ-CGAを適用）
+        self.to_patch_embedding = PatchEmbedCGA(
+            image_size=image_size,
+            patch_size=patch_size,
+            channels=channels,
+            dim=dim,
+            bit=quant_bit,
+            boundary_range=quant_boundary_range,
+            granularity=quant_granularity,
         )
         # クラストークン、位置埋め込み定義（学習可能）
         self.cls_token = nn.Parameter(torch.randn(num_cls_tokens, dim))
@@ -153,8 +191,17 @@ class TestViT(Module):
         # 恒等関数レイヤー
         self.to_latent = nn.Identity()
         # 分類ヘッド
-        # self.mlp_head = Q_Linear(dim, num_classes, bias=False, use_norm=False, as_float=True, unsigned=False) if num_classes > 0 else None
-        self.mlp_head = nn.Linear(dim, num_classes, bias=False) if num_classes > 0 else None
+        # 以前の分類ヘッド（原状復帰用: 下記をコメント解除）
+        # self.mlp_head = nn.Linear(dim, num_classes, bias=False) if num_classes > 0 else None
+        # 最終MLP headにStatsQ-CGAを適用
+        self.mlp_head = StatsQ_CGA_Linear(
+            dim,
+            num_classes,
+            bias=False,
+            bit=quant_bit,
+            boundary_range=quant_boundary_range,
+            granularity=quant_granularity,
+        ) if num_classes > 0 else None
 
     def forward(self, img):
         # バッチ次元数取得
