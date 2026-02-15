@@ -199,5 +199,74 @@ class Affine(nn.Module):
         beta_ste = beta_ste.view(*shape)
 
         return x * gamma_ste + beta_ste
-    
+
+
+# ── LST_Act_Quant (LSQ+風 活性化量子化) ─────────────────────────────────────
+class LST_Act_Quant(nn.Module):
+    """LSQ+ベースの可読性重視版アクティベーション量子化器。
+
+    疑似量子化入力（FP）`x` と `scale_x` を受け取る。
+    本実装では `x` をFP前提で扱い、`scale_x` はインターフェース互換のために受け取る。
+    """
+
+    def __init__(self, num_bits=4, init_steps=100, init_lr=0.01):
+        super().__init__()
+        self.quantizer = Quantizer()
+        self.num_bits = num_bits
+        self.qmin = 0
+        self.qmax = 2**num_bits - 1
+
+        self.scale = nn.Parameter(torch.tensor(1.0))
+        self.offset = nn.Parameter(torch.tensor(0.0))
+
+        self.init_steps = init_steps
+        self.init_lr = init_lr
+        self.initialized = False
+
+    def _fake_quant_with_ste(self, x_fp):
+        scaled = (x_fp - self.offset) / (self.scale + self.quantizer.EPS)
+        clipped = scaled.clamp(self.qmin, self.qmax)
+        rounded = self.quantizer._round_clip(clipped, self.qmin, self.qmax)
+        q_ste = clipped + (rounded - clipped).detach()
+        return q_ste * self.scale + self.offset
+
+    def _initialize_by_mse(self, x_fp):
+        if self.initialized:
+            return
+
+        with torch.enable_grad():
+            x_min = x_fp.min().detach().item()
+            x_max = x_fp.max().detach().item()
+
+            if x_max > x_min:
+                init_scale = (x_max - x_min) / (self.qmax - self.qmin)
+            else:
+                init_scale = 1.0
+
+            self.scale.data.fill_(init_scale)
+            self.offset.data.fill_(x_min)
+
+            optimizer = torch.optim.SGD([self.scale, self.offset], lr=self.init_lr)
+            for _ in range(self.init_steps):
+                optimizer.zero_grad()
+                x_hat = self._fake_quant_with_ste(x_fp)
+                mse = torch.mean((x_hat - x_fp) ** 2)
+                mse.backward()
+                optimizer.step()
+
+                with torch.no_grad():
+                    self.scale.data.clamp_(min=self.quantizer.EPS)
+
+        self.initialized = True
+
+    def forward(self, x, scale_x):
+
+        if self.training and (not self.initialized):
+            self._initialize_by_mse(x)
+
+        if not self.initialized:
+            return x
+
+        return self._fake_quant_with_ste(x)
+
 
