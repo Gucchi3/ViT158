@@ -18,7 +18,7 @@ except ImportError:
     from .test_linear import TerLinear, Q_Linear, Q_Conv2d, Affine, StatsQ_CGA_Linear, StatsQ_CGA_Conv2d, LSQ_Act_Quant
     from .quantizer import Quantizer, NEQ, ScaleConverter
     from .stats_quantizer import StatsQuantizer_CGA
-    
+
 
 
 # helpers
@@ -46,7 +46,8 @@ class Embeddings_CGA(Module):
         # 量子化器
         self.quantizer = Quantizer()
         # 再量子化器
-        self.requantizer = LSQ_Act_Quant(num_bits=8)
+        # self.requantizer = LSQ_Act_Quant(num_bits=8)
+        self.requantizer = Quantizer()
         # 正規化
         self.norm = nn.LayerNorm(dim)
 
@@ -62,7 +63,8 @@ class Embeddings_CGA(Module):
         # 4. 加算 
         x = x + pos_emb_q
         # 5. 再量子化->逆量子化 
-        x = self.requantizer(x, scale_x=None)
+        #x = self.requantizer(x, scale_x=None)
+        x, _ = self.requantizer.to_bit_per_tensor(x, bit=8, as_float=True)
         # return
         x = self.dropout(x)
         return self.norm(x)
@@ -73,14 +75,16 @@ class FeedForward(Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
-        # self.fc1 = Q_Linear(dim, hidden_dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
+        self.fc1 = Q_Linear(dim, hidden_dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
         # self.fc1 = nn.Linear(dim, hidden_dim, bias=False)
-        self.fc1 = StatsQ_CGA_Linear(dim, hidden_dim, bias=False, bit=8, boundary_range=0.005, granularity="per_tensor", ternary=True)
+        # self.fc1 = StatsQ_CGA_Linear(dim, hidden_dim, bias=False, bit=8, boundary_range=0.005, granularity="per_tensor", ternary=True)
+        # self.fc1 = TerLinear(dim, hidden_dim, bias=False, as_float=True)
         self.act = nn.GELU()
         self.drop1 = nn.Dropout(dropout)
-        # self.fc2 = Q_Linear(hidden_dim, dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
+        self.fc2 = Q_Linear(hidden_dim, dim, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
         # self.fc2 = nn.Linear(hidden_dim, dim, bias=False)
-        self.fc2 = StatsQ_CGA_Linear(hidden_dim, dim, bias=False, bit=8, boundary_range=0.005, granularity="per_tensor", ternary=True)
+        # self.fc2 = StatsQ_CGA_Linear(hidden_dim, dim, bias=False, bit=8, boundary_range=0.005, granularity="per_tensor", ternary=True)
+        # self.fc2 = TerLinear(hidden_dim, dim, bias=False, as_float=True)
         self.drop2 = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -110,17 +114,10 @@ class Attention(Module):
         self.attend = nn.Softmax(dim = -1)
         self.dropout = nn.Dropout(dropout)
 
-        # self.to_qkv = Q_Linear(
-        #     dim,
-        #     inner_dim * 3,
-        #     bias=False,
-        #     use_norm=False,
-        #     bit=8,
-        #     as_float=True,
-        #     unsigned=False,
-        # )
+        self.to_qkv = Q_Linear(dim, inner_dim * 3, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False)
         # self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
-        self.to_qkv = StatsQ_CGA_Linear(dim, inner_dim * 3, bias=False, bit=8, boundary_range=0.005, granularity="per_tensor", ternary=True)
+        # self.to_qkv = StatsQ_CGA_Linear(dim, inner_dim * 3, bias=False, bit=8, boundary_range=0.005, granularity="per_tensor", ternary=True)
+        #self.to_qkv = TerLinear(dim, inner_dim * 3, bias=False, as_float=True)
 
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, dim),
@@ -193,7 +190,10 @@ class TestViT(Module):
         self.to_latent = nn.Identity()
         # 分類ヘッド
         # 最終MLP headにStatsQ-CGAを適用
-        self.mlp_head = StatsQ_CGA_Linear(dim, num_classes, bias=False, bit=quant_bit, boundary_range=quant_boundary_range, granularity=quant_granularity) if num_classes > 0 else None
+        #self.mlp_head = StatsQ_CGA_Linear(dim, num_classes, bias=False, bit=quant_bit, boundary_range=quant_boundary_range, granularity=quant_granularity) if num_classes > 0 else None
+        self.mlp_head = Q_Linear(dim, num_classes, bias=False, use_norm=False, bit=8, as_float=True, unsigned=False) if num_classes > 0 else None
+        # self.mlp_head = nn.Linear(dim, num_classes) if num_classes > 0 else None
+        # self.mlp_head = TerLinear(dim, num_classes, bias=False, as_float=True) if num_classes > 0 else None
 
     def forward(self, img):
         # バッチ次元数取得

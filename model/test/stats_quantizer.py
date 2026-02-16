@@ -205,8 +205,7 @@ class StatsQuantizer_CGA(nn.Module):
       W_q = s * RoundClip(W / s, -1, 1)
     CGA の BR は決定境界 ±0.5 の近傍で定義される
     """
-    def __init__(self, num_bits, clip_learnable=False, boundaryRange=0.005,
-                 granularity="per_tensor", ternary=False):
+    def __init__(self, num_bits, clip_learnable=False, boundaryRange=0.005, granularity="per_tensor", ternary=False):
         super(StatsQuantizer_CGA, self).__init__()
 
         self.num_bits = num_bits
