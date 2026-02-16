@@ -170,7 +170,7 @@ class StatsQuantizer(nn.Module):
             raise ValueError(f"Unsupported weight shape: {weight.shape}")
 
         scaling_factor = scaling_factor.detach()
-        self.s = scaling_factor.squeeze().cpu()
+        self.s = scaling_factor.squeeze().detach()
         
         # スケーリングとクリッピング
         scaled_weights = real_weights / scaling_factor
@@ -199,11 +199,18 @@ class StatsQuantizer_CGA(nn.Module):
     論文 Algorithm 1 に厳密に準拠
     
     CGA: BR外（高信頼度）の重みを先にフリーズし、BR内の重みのみ更新
+    
+    ternary=True の場合、1.58-bit 三値量子化 {-1, 0, +1} に切り替え:
+      s = E(|W|)  (granularity に従う)
+      W_q = s * RoundClip(W / s, -1, 1)
+    CGA の BR は決定境界 ±0.5 の近傍で定義される
     """
-    def __init__(self, num_bits, clip_learnable=False, boundaryRange=0.005, granularity="per_tensor"):
+    def __init__(self, num_bits, clip_learnable=False, boundaryRange=0.005,
+                 granularity="per_tensor", ternary=False):
         super(StatsQuantizer_CGA, self).__init__()
 
         self.num_bits = num_bits
+        self.ternary = ternary
         init_act_clip_val = 2.0
         self.clip_val = nn.Parameter(
             torch.Tensor([init_act_clip_val]), 
@@ -214,8 +221,11 @@ class StatsQuantizer_CGA(nn.Module):
         self.granularity = granularity
 
     def _compute_scaling_factor(self, real_weights):
+        # ternary: s = E(|W|),  multi-bit: s = 2 * E(|W|)
+        coeff = 1.0 if self.ternary else 2.0
+
         if self.granularity == "per_tensor":
-            scaling_factor = 2 * torch.mean(abs(real_weights))
+            scaling_factor = coeff * torch.mean(abs(real_weights))
             if real_weights.ndim == 2:
                 scaling_factor = scaling_factor.view(1, 1)
             elif real_weights.ndim == 3:
@@ -224,18 +234,18 @@ class StatsQuantizer_CGA(nn.Module):
                 raise ValueError(f"Unsupported weight shape: {real_weights.shape}")
         elif self.granularity == "per_channel":
             if real_weights.ndim == 2:
-                scaling_factor = 2 * torch.mean(abs(real_weights), dim=1, keepdim=True)
+                scaling_factor = coeff * torch.mean(abs(real_weights), dim=1, keepdim=True)
             elif real_weights.ndim == 3:
                 # (B, N, D) の D 方向で量子化スケールを共有
-                scaling_factor = 2 * torch.mean(abs(real_weights), dim=2, keepdim=True)
+                scaling_factor = coeff * torch.mean(abs(real_weights), dim=2, keepdim=True)
             else:
                 raise ValueError(f"Unsupported weight shape: {real_weights.shape}")
         elif self.granularity == "per_token":
             if real_weights.ndim == 2:
-                scaling_factor = 2 * torch.mean(abs(real_weights), dim=1, keepdim=True)
+                scaling_factor = coeff * torch.mean(abs(real_weights), dim=1, keepdim=True)
             elif real_weights.ndim == 3:
                 # 既存実装互換: token軸Nごとにスケール（batch共有）
-                scaling_factor = 2 * torch.mean(
+                scaling_factor = coeff * torch.mean(
                     torch.mean(abs(real_weights), dim=-1, keepdim=True),
                     dim=0,
                     keepdim=True,
@@ -258,42 +268,51 @@ class StatsQuantizer_CGA(nn.Module):
         scaling_factor = self._compute_scaling_factor(real_weights)
 
         scaling_factor = scaling_factor.detach()
-        self.s = scaling_factor.squeeze().cpu()
+        self.s = scaling_factor.squeeze().detach()
         
-        scaled_weights = real_weights / scaling_factor
-        cliped_weights = torch.clamp(
-            scaled_weights, 
-            min=(-self.clip_val/2), 
-            max=(self.clip_val/2) - 1e-6
-        )
-        
-        n = float(2 ** (self.num_bits - 1))
-        b4_round = (cliped_weights) * n - 0.5
-        
-        # CGA: Algorithm 1の実装
-        if self.training:
-            # BR内かどうかの判定マスク（デバイス対応）
-            within_BR = torch.zeros_like(real_weights, device=real_weights.device)
+        if self.ternary:
+            # ── 三値量子化パス {-1, 0, +1} ──
+            scaled_weights = real_weights / scaling_factor
+            # Clip to [-1, 1]
+            clipped = torch.clamp(scaled_weights, -1.0, 1.0)
             
-            # 各量子化レベルのしきい値周辺±BRを判定
-            for i in range(-(2**(self.num_bits - 1)), 2**(self.num_bits - 1)):
-                # しきい値 i+0.5 の周辺 ±boundaryRange
-                in_boundary = (
-                    ((b4_round - i) <= (0.5 + self.boundaryRange)) & 
-                    ((b4_round - i) >= (0.5 - self.boundaryRange))
-                )
-                within_BR = within_BR + in_boundary.float()
+            # CGA: 決定境界 ±0.5 の近傍が BR
+            if self.training:
+                # clipped の各要素について、最も近い決定境界 (±0.5) までの距離
+                abs_val = torch.abs(clipped)
+                dist_from_boundary = torch.abs(abs_val - 0.5)
+                within_BR = (dist_from_boundary <= self.boundaryRange).float()
+                # BR外は勾配を切る
+                clipped = clipped.detach() * (1 - within_BR) + clipped * within_BR
             
-            # BR外（高信頼度）をフリーズ: 勾配マスク方式
-            # within_BR = 1: BR内（更新する）, 0: BR外（フリーズ）
-            within_BR = torch.clamp(within_BR, 0, 1)
+            # Round to {-1, 0, +1}
+            quan_weights_no_grad = scaling_factor * torch.round(clipped)
+        else:
+            # ── 既存マルチビット量子化パス ──
+            scaled_weights = real_weights / scaling_factor
+            cliped_weights = torch.clamp(
+                scaled_weights, 
+                min=(-self.clip_val/2), 
+                max=(self.clip_val/2) - 1e-6
+            )
             
-            # BR外は勾配を切る（論文Algorithm 1のG_j = G_{j-1} * 1_{Wq ∈ BRx}）
-            b4_round = b4_round.detach() * (1 - within_BR) + b4_round * within_BR
-        
-        quan_weights_no_grad = scaling_factor * (
-            (torch.round(b4_round) + 0.5) / n
-        )
+            n = float(2 ** (self.num_bits - 1))
+            b4_round = (cliped_weights) * n - 0.5
+            
+            # CGA: Algorithm 1の実装
+            if self.training:
+                # BR内かどうかの判定（ベクトル化実装）
+                # b4_round が半整数 (i + 0.5) の近傍 ±boundaryRange にあるか判定
+                # ⟺ (b4_round - 0.5) が最も近い整数から boundaryRange 以内にあるか
+                shifted = b4_round - 0.5
+                dist_from_int = torch.abs(shifted - torch.round(shifted))
+                # within_BR = 1: BR内（更新する）, 0: BR外（フリーズ）
+                within_BR = (dist_from_int <= self.boundaryRange).float()
+                
+                # BR外は勾配を切る（論文Algorithm 1のG_j = G_{j-1} * 1_{Wq ∈ BRx}）
+                b4_round = b4_round.detach() * (1 - within_BR) + b4_round * within_BR
+            
+            quan_weights_no_grad = scaling_factor * ((torch.round(b4_round) + 0.5) / n)
         
         # STE
         quan_weights = quan_weights_no_grad.detach() - real_weights.detach() + real_weights

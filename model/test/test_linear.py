@@ -165,15 +165,10 @@ class Q_Conv2d(nn.Conv2d):
 
 # ── StatsQ-CGA Linear/Conv ──────────────────────────────────────────────
 class StatsQ_CGA_Linear(nn.Linear):
-    def __init__(self, in_features, out_features, bias=True, bit=8, boundary_range=0.005, granularity="per_tensor"):
+    def __init__(self, in_features, out_features, bias=True, bit=8, boundary_range=0.005, granularity="per_tensor", ternary=False):
         super().__init__(in_features, out_features, bias)
         self.x_quantizer = LSQ_Act_Quant(num_bits=bit)
-        self.w_quantizer = StatsQuantizer_CGA(
-            num_bits=bit,
-            clip_learnable=False,
-            boundaryRange=boundary_range,
-            granularity=granularity,
-        )
+        self.w_quantizer = StatsQuantizer_CGA(num_bits=bit, clip_learnable=False, boundaryRange=boundary_range, granularity=granularity, ternary=ternary)
 
     def forward(self, x):
         x_quant = self.x_quantizer(x, scale_x=None)
